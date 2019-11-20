@@ -23,7 +23,6 @@ import (
 
 const (
 	gistC2 = "GIST"
-	ok     = 200
 )
 
 /*

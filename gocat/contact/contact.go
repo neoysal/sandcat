@@ -1,7 +1,7 @@
 package contact
 
 const (
-	ok = 200
+	ok      = 200
 	created = 201
 )
 
@@ -9,13 +9,13 @@ const (
 type Contact interface {
 	Ping(server string) bool
 	GetInstructions(profile map[string]interface{}) map[string]interface{}
-	DropPayloads(payload string, server string, uniqueId string) []string
+	DropPayloads(payload string, server string, uniqueID string) []string
 	RunInstruction(command map[string]interface{}, profile map[string]interface{}, payloads []string)
 	C2RequirementsMet(criteria interface{}) bool
 }
 
 //CommunicationChannels contains the contact implementations
 var CommunicationChannels = map[string]Contact{
-	"API": API{},
+	"HTTP": HTTP{},
 	"GIST": GIST{},
 }
