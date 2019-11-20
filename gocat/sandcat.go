@@ -87,7 +87,7 @@ func buildProfile(server string, group string, sleep int, executors []string, pr
 func chooseCommunicationChannel(profile map[string]interface{}) contact.Contact {
 	coms, _ := contact.CommunicationChannels[profile["c2"].(string)]
 	if !validC2Configuration(coms, profile["c2"].(string)) {
-		output.VerbosePrint("[-] Invalid C2 Configuration! Defaulting to API")
+		output.VerbosePrint("[-] C2 Defaulting to HTTP")
 		coms, _ = contact.CommunicationChannels[defaultC2]
 		profile["c2"] = defaultC2
 	}
