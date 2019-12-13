@@ -60,15 +60,17 @@ func (contact API) GetInstructions(profile map[string]interface{}) map[string]in
 }
 
 //DropPayloads downloads all required payloads for a command
-func (contact API) DropPayloads(payload string, server string) []string{
+func (contact API) DropPayloads(payload string, server string, payload_location_map map[string]string) ([]string, map[string]string) {
 	payloads := strings.Split(strings.Replace(payload, " ", "", -1), ",")
 	var droppedPayloads []string
 	for _, payload := range payloads {
 		if len(payload) > 0 {
-			droppedPayloads = append(droppedPayloads, drop(server, payload))
+		    dropped = drop(server, payload, payload_location_map)
+			droppedPayloads = append(droppedPayloads, dropped)
+            payload_location_map[payload] = dropped
 		}
 	}
-	return droppedPayloads
+	return droppedPayloads, payload_location_map
 }
 
 //RunInstruction runs a single instruction
@@ -82,9 +84,14 @@ func (contact API) C2RequirementsMet(criteria interface{}) bool {
 	return true
 }
 
-func drop(server string, payload string) string {
-	location := filepath.Join(payload)
+func drop(server string, payload string, payload_location_map map[string]string) string {
+    if (payload_location_map[payload]) {
+        location := payload_location_map[payload]
+    } else {
+        location := filepath.Join(payload)
+    }
 	if len(payload) > 0 && util.Exists(location) == false {
+	    extension := filepath.Ext(payload)
 		output.VerbosePrint(fmt.Sprintf("[*] Downloading new payload: %s", payload))
 		address := fmt.Sprintf("%s/file/download", server)
 		req, _ := http.NewRequest("POST", address, nil)
@@ -93,6 +100,11 @@ func drop(server string, payload string) string {
 		client := &http.Client{}
 		resp, err := client.Do(req)
 		if err == nil && resp.StatusCode == ok {
+		    display_name := strings.Split(resp.Header.Get("CONTENT-DISPOSITION"), "\"")[1]
+		    if (extension != filepath.Ext(display_name)) {
+		        display_name = display_name + extension
+		    }
+		    location = filepath.Join(display_name)
 			util.WritePayload(location, resp)
 		}
 	}
