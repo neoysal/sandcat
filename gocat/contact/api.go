@@ -60,14 +60,14 @@ func (contact API) GetInstructions(profile map[string]interface{}) map[string]in
 }
 
 //DropPayloads downloads all required payloads for a command
-func (contact API) DropPayloads(payload string, server string, payload_location_map map[string]string) []string {
+func (contact API) DropPayloads(payload string, server string, payload_localname_map map[string]string) []string {
 	payloads := strings.Split(strings.Replace(payload, " ", "", -1), ",")
 	var droppedPayloads []string
 	for _, payload := range payloads {
 		if len(payload) > 0 {
-		    dropped = drop(server, payload, payload_location_map)
+		    dropped = drop(server, payload, payload_localname_map)
 			droppedPayloads = append(droppedPayloads, dropped)
-            payload_location_map[payload] = dropped
+            payload_localname[payload] = filepath.Base(dropped)
 		}
 	}
 	return droppedPayloads
@@ -84,9 +84,9 @@ func (contact API) C2RequirementsMet(criteria interface{}) bool {
 	return true
 }
 
-func drop(server string, payload string, payload_location_map map[string]string) string {
-    if (payload_location_map[payload]) {
-        location := payload_location_map[payload]
+func drop(server string, payload string, payload_localname_map map[string]string) string {
+    if (payload_localname_map[payload]) {
+        location := filepath.Join(filepath.Base(payload_localname_map[payload]))
     } else {
         location := filepath.Join(payload)
     }
