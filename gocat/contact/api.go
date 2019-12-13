@@ -74,8 +74,8 @@ func (contact API) DropPayloads(payload string, server string, payload_localname
 }
 
 //RunInstruction runs a single instruction
-func (contact API) RunInstruction(command map[string]interface{}, profile map[string]interface{}, payloads []string) {
-	cmd, result, status, pid := execute.RunCommand(command["command"].(string), payloads, profile["platform"].(string), command["executor"].(string))
+func (contact API) RunInstruction(command map[string]interface{}, profile map[string]interface{}, payloads []string, payload_localname_map map[string]string) {
+	cmd, result, status, pid := execute.RunCommand(command["command"].(string), payloads, profile["platform"].(string), command["executor"].(string), payload_localname_map)
 	sendExecutionResults(command["id"], profile["server"], result, status, cmd, pid)
 }
 

@@ -25,13 +25,14 @@ const (
 type ExecutorFlags []string
 
 //RunCommand runs the actual command
-func RunCommand(command string, payloads []string, platform string, executor string) (string, []byte, string, string){
+func RunCommand(command string, payloads []string, platform string, executor string, payload_localname_map map[string]string) (string, []byte, string, string){
 	cmd := string(util.Decode(command))
 	var status string
 	var result []byte
 	var pid string
-	missingPaths := util.CheckPayloadsAvailable(payloads)
+	missingPaths := util.CheckPayloadsAvailable(payloads, payload_localname_map)
 	if len(missingPaths) == 0 {
+	    cmd = ReplacePayloadNames(cmd, payloads, payload_localname_map)
 		result, status, pid = Execute(cmd, executor, platform)
 	} else {
 		result = []byte(fmt.Sprintf("Payload(s) not available: %s", strings.Join(missingPaths, ", ")))
@@ -39,6 +40,15 @@ func RunCommand(command string, payloads []string, platform string, executor str
 		pid = ERROR_STATUS
 	}
 	return cmd, result, status, pid
+}
+
+//Replaces standard payload names with the locally downloaded names
+func ReplacePayloadNames(command string, payloads []string, payload_localname_map map[string]string) string {
+    for _, payload := range payloads {
+        if filepath.Base(payload) != filepath.Base(payload_localname_map[payload])
+        command = strings.ReplaceAll(command, filepath.Base(payload), filepath.Base(payload_localname_map[payload]))
+    }
+    return command
 }
 
 // Execute runs a shell command

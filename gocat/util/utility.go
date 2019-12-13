@@ -74,10 +74,11 @@ func WritePayload(location string, resp *http.Response) {
 }
 
 //CheckPayloadsAvailable determines if any payloads are not on disk
-func CheckPayloadsAvailable(payloads []string) []string {
+func CheckPayloadsAvailable(payloads []string, payload_localname_map map[string]string) []string {
 	var missing []string
 	for i := range payloads {
-		if Exists(filepath.Join(payloads[i])) == false {
+	    localname := payload_localname_map[payloads[i]]
+		if Exists(filepath.Join(localname)) == false {
 			missing = append(missing, payloads[i])
 		}
 	}
