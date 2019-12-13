@@ -60,7 +60,7 @@ func (contact API) GetInstructions(profile map[string]interface{}) map[string]in
 }
 
 //DropPayloads downloads all required payloads for a command
-func (contact API) DropPayloads(payload string, server string, payload_location_map map[string]string) ([]string, map[string]string) {
+func (contact API) DropPayloads(payload string, server string, payload_location_map map[string]string) []string {
 	payloads := strings.Split(strings.Replace(payload, " ", "", -1), ",")
 	var droppedPayloads []string
 	for _, payload := range payloads {
@@ -70,7 +70,7 @@ func (contact API) DropPayloads(payload string, server string, payload_location_
             payload_location_map[payload] = dropped
 		}
 	}
-	return droppedPayloads, payload_location_map
+	return droppedPayloads
 }
 
 //RunInstruction runs a single instruction
