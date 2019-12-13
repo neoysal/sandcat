@@ -65,9 +65,9 @@ func (contact API) DropPayloads(payload string, server string, payload_localname
 	var droppedPayloads []string
 	for _, payload := range payloads {
 		if len(payload) > 0 {
-		    dropped = drop(server, payload, payload_localname_map)
+		    dropped := drop(server, payload, payload_localname_map)
 			droppedPayloads = append(droppedPayloads, dropped)
-            payload_localname[payload] = filepath.Base(dropped)
+            payload_localname_map[payload] = filepath.Base(dropped)
 		}
 	}
 	return droppedPayloads
@@ -85,10 +85,11 @@ func (contact API) C2RequirementsMet(criteria interface{}) bool {
 }
 
 func drop(server string, payload string, payload_localname_map map[string]string) string {
-    if (payload_localname_map[payload]) {
-        location := filepath.Join(filepath.Base(payload_localname_map[payload]))
+    var location string
+    if localname, exists := payload_localname_map[payload]; exists {
+        location = filepath.Join(filepath.Base(localname))
     } else {
-        location := filepath.Join(payload)
+        location = filepath.Join(payload)
     }
 	if len(payload) > 0 && util.Exists(location) == false {
 	    extension := filepath.Ext(payload)

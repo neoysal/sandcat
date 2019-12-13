@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"path/filepath"
 
 	"../shellcode"
 	"../util"
@@ -45,8 +46,9 @@ func RunCommand(command string, payloads []string, platform string, executor str
 //Replaces standard payload names with the locally downloaded names
 func ReplacePayloadNames(command string, payloads []string, payload_localname_map map[string]string) string {
     for _, payload := range payloads {
-        if filepath.Base(payload) != filepath.Base(payload_localname_map[payload])
-        command = strings.ReplaceAll(command, filepath.Base(payload), filepath.Base(payload_localname_map[payload]))
+        if (filepath.Base(payload) != filepath.Base(payload_localname_map[payload])) {
+            command = strings.ReplaceAll(command, filepath.Base(payload), filepath.Base(payload_localname_map[payload]))
+        }
     }
     return command
 }
