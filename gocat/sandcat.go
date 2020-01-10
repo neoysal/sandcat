@@ -18,6 +18,7 @@ var (
     defaultSleep = "60"
     c2Name = "HTTP"
     c2Key = ""
+    defaultC2Proxy = ""
 )
 
 func main() {
@@ -28,11 +29,12 @@ func main() {
 	delay := flag.Int("delay", 0, "Delay starting this agent by n-seconds")
 	verbose := flag.Bool("v", false, "Enable verbose output")
 	c2 := flag.String("c2", c2Name, "C2 Channel for agent")
+	c2Proxy := flag.String("c2Proxy", defaultC2Proxy, "Proxy server for agent to use to talk to C2 (default no proxy)")
 
 	flag.Var(&executors, "executors", "Comma separated list of executors (first listed is primary)")
 	flag.Parse()
 	
 	c2Config := map[string]string{"c2Name": *c2, "c2Key": c2Key}
 
-	core.Core(*server, *group, *sleep, *delay, executors, c2Config, *verbose)
+	core.Core(*server, *group, *sleep, *delay, executors, c2Config, *c2Proxy, *verbose)
 }

