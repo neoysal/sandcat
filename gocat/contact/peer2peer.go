@@ -24,6 +24,7 @@ type P2pReceiver interface {
 // Defines message structure for p2p
 type P2pMessage struct {
     RequestingAgentPaw string
+    ReturnTo string // for sending back responses
     MessageType int
     Payload []byte
     Populated bool
@@ -32,12 +33,13 @@ type P2pMessage struct {
 // Helper Functions
 
 // Build p2p message and return the bytes of its JSON marshal.
-func buildP2pMsgBytes(paw string, instruction int, payload []byte) []byte {
+func buildP2pMsgBytes(paw string, instruction int, payload []byte, returnTo string) []byte {
     p2pMsg := make(map[string]interface{})
     p2pMsg["RequestingAgentPaw"] = paw
     p2pMsg["MessageType"] = instruction
     p2pMsg["Payload"] = payload
     p2pMsg["Populated"] = true
+    p2pMsg["ReturnTo"] = returnTo
     p2pMsgData, _ := json.Marshal(p2pMsg)
 
     return p2pMsgData
