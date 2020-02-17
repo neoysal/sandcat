@@ -19,8 +19,8 @@ import (
 
 //PipeAPI2 communicates through SMB named pipes using an alternative implementation. Implements the Contact interface
 type SmbPipeAPI2 struct {
-    clientMailBoxPipePath string // agent will set this up if sending p2p requests.
-    clientMailBoxListener net.Listener // Listener object for client mailbox pipe.
+    ReturnMailBoxPipePath string // agent will set this up if sending p2p requests.
+    ReturnMailBoxListener net.Listener // Listener object for client mailbox pipe.
 }
 
 //PipeReceiver forwards data received from SMB pipes to the upstream server. Implements the P2pReceiver interface
@@ -93,7 +93,7 @@ func (receiver SmbPipeReceiver2) forwardGetInstructions(message P2pMessage, prof
         if profile["paw"] != nil {
             forwarderPaw = profile["paw"].(string)
         }
-        pipeMsgData := buildP2pMsgBytes(forwarderPaw, RESPONSE_INSTRUCTIONS, data, message.ReturnTo)
+        pipeMsgData := buildP2pMsgBytes(forwarderPaw, RESPONSE_INSTRUCTIONS, data, "")
         sendDataToPipe(message.ReturnTo, pipeMsgData)
         output.VerbosePrint(fmt.Sprintf("[*] Sent instruction response to paw %s at mailbox %s:", paw, message.ReturnTo))
     } else {
@@ -119,9 +119,9 @@ func (receiver SmbPipeReceiver2) forwardPayloadBytesDownload(message P2pMessage,
         if profile["paw"] != nil {
             forwarderPaw = profile["paw"].(string)
         }
-        pipeMsgData := buildP2pMsgBytes(forwarderPaw, RESPONSE_PAYLOAD_BYTES, upstreamResponse, message.ReturnTo)
+        pipeMsgData := buildP2pMsgBytes(forwarderPaw, RESPONSE_PAYLOAD_BYTES, upstreamResponse, "")
         sendDataToPipe(message.ReturnTo, pipeMsgData)
-        output.VerbosePrint(fmt.Sprintf("[*] Sent  payload bytes to paw %s at mailbox %s:", paw, message.ReturnTo))
+        output.VerbosePrint(fmt.Sprintf("[*] Sent payload bytes to paw %s at mailbox %s:", paw, message.ReturnTo))
     } else {
         output.VerbosePrint(fmt.Sprintf("[-] ERROR. P2p message from client did not specify a return address."))
     }
@@ -152,7 +152,7 @@ func (receiver SmbPipeReceiver2) forwardSendExecResults(message P2pMessage, prof
             forwarderPaw = profile["paw"].(string)
         }
 
-        pipeMsgData := buildP2pMsgBytes(forwarderPaw, RESPONSE_SEND_EXECUTION_RESULTS, nil, message.ReturnTo) // no data to send, just an ACK
+        pipeMsgData := buildP2pMsgBytes(forwarderPaw, RESPONSE_SEND_EXECUTION_RESULTS, nil, "") // no data to send, just an ACK
         sendDataToPipe(message.ReturnTo, pipeMsgData)
         output.VerbosePrint(fmt.Sprintf("[*] Sent execution result delivery response to paw %s at mailbox %s:", paw, message.ReturnTo))
     } else {
@@ -167,21 +167,28 @@ func (receiver SmbPipeReceiver2) forwardSendExecResults(message P2pMessage, prof
 // Contact API functions
 
 func (p2pPipeClient SmbPipeAPI2) GetInstructions(profile map[string]interface{}) map[string]interface{} {
-    // Send instruction request
-    payload, _ := json.Marshal(profile)
-    paw := ""
-    if profile["paw"] != nil {
-        paw = profile["paw"].(string)
-    }
-    pipeMsgData := buildP2pMsgBytes(paw, INSTR_GET_INSTRUCTIONS, payload, p2pPipeClient.clientMailBoxPipePath)
-    sendDataToPipe(profile["server"].(string), pipeMsgData)
     var out map[string]interface{}
 
-    // Listen on mailbox pipe for response.
-    if p2pPipeClient.clientMailBoxListener != nil {
-        respData, err := fetchDataFromPipe(p2pPipeClient.clientMailBoxListener)
+    // Set up mailbox pipe for response, if needed.
+    var err error = nil
+    if p2pPipeClient.ReturnMailBoxListener == nil {
+        err = setReturnMailBox(&p2pPipeClient)
+    }
+
+    if p2pPipeClient.ReturnMailBoxListener != nil && err == nil {
+        // Send instruction request
+        payload, _ := json.Marshal(profile)
+        paw := ""
+        if profile["paw"] != nil {
+            paw = profile["paw"].(string)
+        }
+        pipeMsgData := buildP2pMsgBytes(paw, INSTR_GET_INSTRUCTIONS, payload, p2pPipeClient.ReturnMailBoxPipePath)
+        sendDataToPipe(profile["server"].(string), pipeMsgData)
+
+        // Get response.
+        respData, err := fetchDataFromPipe(p2pPipeClient.ReturnMailBoxListener)
         if err != nil {
-            output.VerbosePrint(fmt.Sprintf("[!] Error with reading response sent to pipe %s\n%v", p2pPipeClient.clientMailBoxPipePath, err))
+            output.VerbosePrint(fmt.Sprintf("[!] Error with reading response sent to pipe %s\n%v", p2pPipeClient.ReturnMailBoxPipePath, err))
             output.VerbosePrint(fmt.Sprintf("[-] P2p beacon via %s: DEAD", profile["server"].(string)))
         } else {
             serverResp := bytesToP2pMsg(respData)
@@ -205,7 +212,7 @@ func (p2pPipeClient SmbPipeAPI2) GetInstructions(profile map[string]interface{})
             }
         }
     } else {
-        output.VerbosePrint("[!] ERROR: mailbox pipe listener is nil.")
+        output.VerbosePrint(fmt.Sprintf("[!] ERROR: failed to set up return mailbox pipe listener. Error: %v", err))
         output.VerbosePrint(fmt.Sprintf("[-] P2p beacon via %s: DEAD", profile["server"].(string)))
     }
 	return out
@@ -226,17 +233,21 @@ func (p2pPipeClient SmbPipeAPI2) DropPayloads(payload string, server string, uni
 func (p2pPipeClient SmbPipeAPI2) GetPayloadBytes(payload string, server string, uniqueID string, platform string) []byte {
 	var payloadBytes []byte
 	if len(payload) > 0 {
-	    // Download single payload bytes. Create SMB Pipe message with instruction type INSTR_GET_PAYLOAD_BYTES
-	    // and payload as a map[string]string specifying the file and platform.
-		output.VerbosePrint(fmt.Sprintf("[*] P2p Client Downloading new payload via %s: %s",server, payload))
-        fileInfo := map[string]interface{} {"file": payload, "platform": platform}
-        payload, _ := json.Marshal(fileInfo)
-        pipeMsgData := buildP2pMsgBytes(uniqueID, INSTR_GET_PAYLOAD_BYTES, payload, p2pPipeClient.clientMailBoxPipePath)
-		sendDataToPipe(server, pipeMsgData)
+        // Set up mailbox pipe for response, if needed.
+        var err error = nil
+        if p2pPipeClient.ReturnMailBoxListener == nil {
+            err = setReturnMailBox(&p2pPipeClient)
+        }
 
-        // Listen on mailbox pipe for response.
-        if p2pPipeClient.clientMailBoxListener != nil {
-            respData, err := fetchDataFromPipe(p2pPipeClient.clientMailBoxListener)
+        if p2pPipeClient.ReturnMailBoxListener != nil && err == nil {
+            // Download single payload bytes. Create SMB Pipe message with instruction type INSTR_GET_PAYLOAD_BYTES
+            // and payload as a map[string]string specifying the file and platform.
+            output.VerbosePrint(fmt.Sprintf("[*] P2p Client Downloading new payload via %s: %s",server, payload))
+            fileInfo := map[string]interface{} {"file": payload, "platform": platform}
+            payload, _ := json.Marshal(fileInfo)
+            pipeMsgData := buildP2pMsgBytes(uniqueID, INSTR_GET_PAYLOAD_BYTES, payload, p2pPipeClient.ReturnMailBoxPipePath)
+            sendDataToPipe(server, pipeMsgData)
+            respData, err := fetchDataFromPipe(p2pPipeClient.ReturnMailBoxListener)
             if err != nil {
                 output.VerbosePrint("[!] Error: failed message response from forwarder.")
             } else {
@@ -249,7 +260,7 @@ func (p2pPipeClient SmbPipeAPI2) GetPayloadBytes(payload string, server string, 
                 }
              }
         } else {
-            output.VerbosePrint("[!] ERROR: mailbox pipe listener is nil. Cannot fetch payload bytes.")
+            output.VerbosePrint(fmt.Sprintf("[!] ERROR: failed to set up return mailbox pipe listener. Cannot fetch payload bytes. Error: %v", err))
         }
 	}
 	return payloadBytes
@@ -267,42 +278,26 @@ func (p2pPipeClient SmbPipeAPI2) RunInstruction(command map[string]interface{}, 
 }
 
 func (p2pPipeClient SmbPipeAPI2) C2RequirementsMet(criteria map[string]string) bool {
-    // Generate random pipe name for client mail box pipe path.
-    pipeName := getRandPipeName(rand.Intn(clientPipeNameMaxLen - clientPipeNameMinLen) + clientPipeNameMinLen)
-    hostname, err := os.Hostname()
-    if err != nil {
-        output.VerbosePrint(fmt.Sprintf("[!] ERROR obtaining hostname: %v", err))
-        return false
-    }
-
-    p2pPipeClient.clientMailBoxPipePath = "\\\\" + hostname + "\\pipe\\" + pipeName
-
-    // Create listener for Pipe
-    listener, err := listenPipeFullAccess(p2pPipeClient.clientMailBoxPipePath)
-
-    if listener != nil && err == nil {
-        p2pPipeClient.clientMailBoxListener = listener
-        output.VerbosePrint(fmt.Sprintf("[*] Set p2p client mailbox pipe path to %s", p2pPipeClient.clientMailBoxPipePath))
-        return true
-    } else {
-        output.VerbosePrint(fmt.Sprintf("[-] Failed to listen on p2p client mailbox pipe path %s", p2pPipeClient.clientMailBoxPipePath))
-        return false
-    }
+    return true
 }
 
 func (p2pPipeClient SmbPipeAPI2) SendExecutionResults(profile map[string]interface{}, result map[string]interface{}) {
-    // Build SMB pipe message for sending execution results.
-    // payload will contain JSON marshal of profile, with execution results
-    profileCopy := profile
-	profileCopy["result"] = result
-	payload, _ := json.Marshal(profileCopy)
-    output.VerbosePrint(fmt.Sprintf("[*] P2p Client: going to send execution results to %s", profile["server"].(string)))
-    pipeMsgData := buildP2pMsgBytes(profile["paw"].(string), INSTR_SEND_EXECUTION_RESULTS, payload, p2pPipeClient.clientMailBoxPipePath)
-    sendDataToPipe(profile["server"].(string), pipeMsgData)
+     // Set up mailbox pipe for response, if needed.
+    var err error = nil
+    if p2pPipeClient.ReturnMailBoxListener == nil {
+        err = setReturnMailBox(&p2pPipeClient)
+    }
 
-    // Listen on mailbox pipe for response.
-    if p2pPipeClient.clientMailBoxListener != nil {
-        respData, err := fetchDataFromPipe(p2pPipeClient.clientMailBoxListener)
+    if p2pPipeClient.ReturnMailBoxListener != nil && err == nil {
+        // Build SMB pipe message for sending execution results.
+        // payload will contain JSON marshal of profile, with execution results
+        profileCopy := profile
+        profileCopy["result"] = result
+        payload, _ := json.Marshal(profileCopy)
+        output.VerbosePrint(fmt.Sprintf("[*] P2p Client: going to send execution results to %s", profile["server"].(string)))
+        pipeMsgData := buildP2pMsgBytes(profile["paw"].(string), INSTR_SEND_EXECUTION_RESULTS, payload, p2pPipeClient.ReturnMailBoxPipePath)
+        sendDataToPipe(profile["server"].(string), pipeMsgData)
+        respData, err := fetchDataFromPipe(p2pPipeClient.ReturnMailBoxListener)
         if err != nil {
             output.VerbosePrint("[!] Error: failed execution result response from forwarder.")
         } else {
@@ -314,7 +309,32 @@ func (p2pPipeClient SmbPipeAPI2) SendExecutionResults(profile map[string]interfa
             }
          }
     } else {
-        output.VerbosePrint("[!] ERROR: mailbox pipe listener is nil. Cannot get response.")
+        output.VerbosePrint(fmt.Sprintf("[!] ERROR: failed to set up return mailbox pipe listener. Cannot get response. Error: %v", err))
+    }
+}
+
+func setReturnMailBox(pipeAPI *SmbPipeAPI2) error {
+    // Generate random pipe name for return mail box pipe path.
+    pipeName := getRandPipeName(rand.Intn(clientPipeNameMaxLen - clientPipeNameMinLen) + clientPipeNameMinLen)
+    hostname, err := os.Hostname()
+    if err != nil {
+        output.VerbosePrint(fmt.Sprintf("[!] ERROR obtaining hostname: %v", err))
+        return err
+    }
+
+    pipeAPI.ReturnMailBoxPipePath = "\\\\" + hostname + "\\pipe\\" + pipeName
+    localPipePath := "\\\\.\\pipe\\" + pipeName
+
+    // Create listener for Pipe
+    listener, err := listenPipeFullAccess(localPipePath)
+
+    if listener != nil && err == nil {
+        pipeAPI.ReturnMailBoxListener = listener
+        output.VerbosePrint(fmt.Sprintf("[*] Set p2p return mailbox pipe path to %s", pipeAPI.ReturnMailBoxPipePath))
+        return nil
+    } else {
+        output.VerbosePrint(fmt.Sprintf("[-] Failed to listen on mailbox pipe path %s", localPipePath))
+        return err
     }
 }
 
