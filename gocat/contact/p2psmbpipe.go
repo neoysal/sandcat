@@ -128,7 +128,7 @@ func (receiver SmbPipeReceiver) setIndividualClientPipe(profile map[string]inter
     if profile["paw"] != nil {
         paw = profile["paw"].(string)
     }
-    pipeMsgData := buildP2pMsgBytes(paw, RESEND_REQUEST, []byte(clientPipeName))
+    pipeMsgData := buildP2pMsgBytes(paw, RESEND_REQUEST, []byte(clientPipeName), "")
 
     // Wait for client to reconnect before sending response.
     conn, err := listener.Accept()
@@ -179,7 +179,7 @@ func (receiver SmbPipeReceiver) forwardGetInstructions(message P2pMessage, profi
     if profile["paw"] != nil {
         forwarderPaw = profile["paw"].(string)
     }
-    pipeMsgData := buildP2pMsgBytes(forwarderPaw, RESPONSE_INSTRUCTIONS, data)
+    pipeMsgData := buildP2pMsgBytes(forwarderPaw, RESPONSE_INSTRUCTIONS, data, "")
    pipeWriter := bufio.NewWriter(conn)
     writePipeData(pipeMsgData, pipeWriter)
     output.VerbosePrint(fmt.Sprintf("[*] Sent instruction response to paw %s:", paw, response))
@@ -208,7 +208,7 @@ func (receiver SmbPipeReceiver) forwardPayloadBytesDownload(message P2pMessage, 
     if profile["paw"] != nil {
         forwarderPaw = profile["paw"].(string)
     }
-    pipeMsgData := buildP2pMsgBytes(forwarderPaw, RESPONSE_PAYLOAD_BYTES, upstreamResponse)
+    pipeMsgData := buildP2pMsgBytes(forwarderPaw, RESPONSE_PAYLOAD_BYTES, upstreamResponse, "")
     pipeWriter := bufio.NewWriter(conn)
     writePipeData(pipeMsgData, pipeWriter)
     output.VerbosePrint(fmt.Sprintf("[*] Sent payload bytes to paw %s", paw))
@@ -247,7 +247,7 @@ func (receiver SmbPipeReceiver) forwardSendExecResults(message P2pMessage, profi
     if profile["paw"] != nil {
         forwarderPaw = profile["paw"].(string)
     }
-    pipeMsgData := buildP2pMsgBytes(forwarderPaw, RESPONSE_SEND_EXECUTION_RESULTS, nil) // no data to send, just an ACK
+    pipeMsgData := buildP2pMsgBytes(forwarderPaw, RESPONSE_SEND_EXECUTION_RESULTS, nil, "") // no data to send, just an ACK
     pipeWriter := bufio.NewWriter(conn)
     writePipeData(pipeMsgData, pipeWriter)
     output.VerbosePrint(fmt.Sprintf("[*] Sent execution result delivery response to paw %s", paw))
@@ -457,7 +457,7 @@ func (p2pPipeClient SmbPipeAPI) drop(payload string, server string, uniqueID str
 // Returns the P2pMessage from the server.
 func (p2pPipeClient SmbPipeAPI) sendRequestToServer(pipePath string, paw string, messageType int, payload []byte) (P2pMessage, error) {
     // Build P2pMessage and convert to bytes.
-    pipeMsgData := buildP2pMsgBytes(paw, messageType, payload)
+    pipeMsgData := buildP2pMsgBytes(paw, messageType, payload, "")
 
     // Send request and fetch response
     p2pPipeClient.sendSmbPipeClientInput(pipePath, pipeMsgData)
