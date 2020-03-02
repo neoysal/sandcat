@@ -60,19 +60,19 @@ func (receiver *SmbPipeReceiver) StartReceiver(profile map[string]interface{}, p
 func (receiver *SmbPipeReceiver) startReceiverHelper(profile map[string]interface{}, pipePath string) {
     listener, err := listenPipeFullAccess(pipePath)
     if err != nil {
-        output.VerbosePrint(fmt.Sprintf("[!] Error with creating listener for pipe %s: %v", pipePath, err))
+        output.VerbosePrint(fmt.Sprintf("[!] Error with creating listener for pipe: %v", err))
         return
     }
     receiver.Listener = listener
     defer receiver.Listener.Close()
-    output.VerbosePrint(fmt.Sprintf("[*] Listening on main handler pipe %s", pipePath))
+    output.VerbosePrint("[*] Listening on main handler pipe")
 
     // Whenever a new client connects to pipe with a request, generate a new individual pipe for that client, listen on that pipe,
     // and give the pipe name to the client.
     for {
         totalData, err := receiver.fetchPipeClientInput()
         if err != nil {
-            output.VerbosePrint(fmt.Sprintf("[!] Error with reading client input for pipe %s: %v", pipePath, err))
+            output.VerbosePrint(fmt.Sprintf("[!] Error with reading client input for pipe: %v", err))
             continue
         }
 
@@ -122,7 +122,7 @@ func (receiver *SmbPipeReceiver) setIndividualClientPipe(profile map[string]inte
     }
     _, err = sendDataToPipeConn(conn, pipeMsgData)
     if err == nil {
-        output.VerbosePrint(fmt.Sprintf("[*] Sent new individual client pipe %s", clientPipeName))
+        output.VerbosePrint("[*] Sent new individual client pipe.")
     } else {
         output.VerbosePrint(fmt.Sprintf("[!] Error sending individual client pipe name to client: %v", err))
     }
@@ -132,18 +132,17 @@ func (receiver *SmbPipeReceiver) setIndividualClientPipe(profile map[string]inte
 func (receiver *SmbPipeReceiver) startIndividualReceiver(profile map[string]interface{}, pipePath string) {
     listener, err := listenPipeFullAccess(pipePath)
     if err != nil {
-        output.VerbosePrint(fmt.Sprintf("[!] Error with creating listener for pipe %s: %v", pipePath, err))
+        output.VerbosePrint(fmt.Sprintf("[!] Error with creating listener for pipe: %v", err))
         return
     }
     receiver.Listener = listener
-    output.VerbosePrint(fmt.Sprintf("[*] Listening on individual client pipe %s", pipePath))
     defer receiver.Listener.Close()
 
     // Get data from client and process request.
 	for {
         totalData, err := receiver.fetchPipeClientInput()
         if err != nil {
-            output.VerbosePrint(fmt.Sprintf("[!] Error with reading client input for pipe %s: %v", pipePath, err))
+            output.VerbosePrint(fmt.Sprintf("[!] Error with reading client input for pipe: %v", err))
             continue
         }
         receiver.listenerHandlePipePayload(BytesToP2pMsg(totalData), profile)
@@ -172,7 +171,6 @@ func (receiver *SmbPipeReceiver) listenerHandlePipePayload(message P2pMessage, p
 // Pass the instruction request to the upstream coms, and return the response.
 func (receiver *SmbPipeReceiver) forwardGetInstructions(message P2pMessage, profile map[string]interface{}) {
     paw := message.RequestingAgentPaw
-    output.VerbosePrint(fmt.Sprintf("[*] Forwarding instruction request to %s on behalf of paw %s", receiver.Server, paw))
 
     // message payload contains profile to send upstream
     var clientProfile map[string]interface{}
@@ -192,7 +190,6 @@ func (receiver *SmbPipeReceiver) forwardGetInstructions(message P2pMessage, prof
 
     // Change this receiver's server if a new server was specified.
     if clientProfile["server"].(string) != receiver.Server {
-        output.VerbosePrint(fmt.Sprintf("[*] Changing this individual receiver's upstream server from %s to %s", receiver.Server, clientProfile["server"].(string)))
         receiver.Server = clientProfile["server"].(string)
     }
 
@@ -206,14 +203,11 @@ func (receiver *SmbPipeReceiver) forwardGetInstructions(message P2pMessage, prof
     _, err = sendDataToPipeConn(conn, pipeMsgData)
     if err != nil {
         output.VerbosePrint(fmt.Sprintf("[!] Error sending instruction response to paw %s: %v", paw, err))
-    } else {
-        output.VerbosePrint(fmt.Sprintf("[*] Sent instruction response to paw %s", paw))
     }
 }
 
 func (receiver *SmbPipeReceiver) forwardPayloadBytesDownload(message P2pMessage, profile map[string]interface{}) {
     paw := message.RequestingAgentPaw
-    output.VerbosePrint(fmt.Sprintf("[*] Forwarding payload bytes request on behalf of paw %s", paw))
 
     // message payload contains file name (str) and platform (str)
     var fileInfo map[string]string
@@ -237,14 +231,11 @@ func (receiver *SmbPipeReceiver) forwardPayloadBytesDownload(message P2pMessage,
     _, err = sendDataToPipeConn(conn, pipeMsgData)
     if err != nil {
         output.VerbosePrint(fmt.Sprintf("[!] Error sending payload bytes to paw %s: %v", paw, err))
-    } else {
-        output.VerbosePrint(fmt.Sprintf("[*] Sent payload bytes to paw %s", paw))
     }
 }
 
 func (receiver *SmbPipeReceiver) forwardSendExecResults(message P2pMessage, profile map[string]interface{}) {
     paw := message.RequestingAgentPaw
-    output.VerbosePrint(fmt.Sprintf("[*] Forwarding execution results on behalf of paw %s", paw))
 
     // message payload contains client profile and result info.
     var clientProfile map[string]interface{}
@@ -274,8 +265,6 @@ func (receiver *SmbPipeReceiver) forwardSendExecResults(message P2pMessage, prof
     _, err = sendDataToPipeConn(conn, pipeMsgData)
     if err != nil {
         output.VerbosePrint(fmt.Sprintf("[!] Error sending execution result delivery response to paw %s: %v", paw, err))
-    } else {
-        output.VerbosePrint(fmt.Sprintf("[*] Sent execution result delivery response to paw %s", paw))
     }
 }
 
@@ -319,24 +308,22 @@ func (p2pPipeClient SmbPipeAPI) GetInstructions(profile map[string]interface{}) 
 		for serverResp.MessageType == RESEND_REQUEST {
             // We got the pipe name to resend request to.
             newPipeName := string(serverResp.Payload)
-            output.VerbosePrint(fmt.Sprintf("[*] Obtained individual pipe name to resend request to: %s", newPipeName))
+            output.VerbosePrint("[*] Obtained individual pipe name to resend request to")
 
             // Replace server for agent.
             serverHostName := strings.Split(profile["server"].(string), "\\")[2]
             newServerPipePath := "\\\\" + serverHostName + "\\pipe\\" + newPipeName
             profile["server"] = newServerPipePath
             serverResp, err = p2pPipeClient.sendRequestToServer(newServerPipePath, paw, GET_INSTRUCTIONS, payload)
-            output.VerbosePrint(fmt.Sprintf("[*] Resent request to %s", newServerPipePath))
-            output.VerbosePrint(fmt.Sprintf("[*] Set this pipe client's server to %s",  profile["server"].(string)))
             if err != nil {
-                output.VerbosePrint(fmt.Sprintf("[-] P2p resent beacon DEAD via %s. Error: %v", profile["server"].(string), err))
+                output.VerbosePrint(fmt.Sprintf("[-] P2p resent beacon DEAD. Error: %v", err))
                 break
             }
         }
 
         // Check if blank message was returned.
         if MsgIsEmpty(serverResp) {
-		    output.VerbosePrint(fmt.Sprintf("[-] Empty message from server. P2p beacon DEAD via %s", profile["server"].(string)))
+		    output.VerbosePrint("[-] Empty message from server. P2p beacon DEAD")
         } else if serverResp.MessageType != RESPONSE_INSTRUCTIONS {
             output.VerbosePrint(fmt.Sprintf("[!] Error: server sent invalid response type for getting instructions: %d", serverResp.MessageType))
         } else {
@@ -345,14 +332,14 @@ func (p2pPipeClient SmbPipeAPI) GetInstructions(profile map[string]interface{}) 
             if out != nil {
                 out["sleep"] = int(out["sleep"].(float64))
                 out["watchdog"] = int(out["watchdog"].(float64))
-                output.VerbosePrint(fmt.Sprintf("[*] P2p beacon ALIVE via %s", profile["server"].(string)))
+                output.VerbosePrint("[*] P2p beacon ALIVE")
             } else {
-		        output.VerbosePrint(fmt.Sprintf("[-] Empty payload from server. P2p beacon DEAD via %s", profile["server"].(string)))
+		        output.VerbosePrint("[-] Empty payload from server. P2p beacon DEAD.")
             }
 		}
 	} else {
 	    output.VerbosePrint(fmt.Sprintf("[!] Error: %v", err))
-		output.VerbosePrint(fmt.Sprintf("[-] P2p beacon via %s: DEAD", profile["server"].(string)))
+		output.VerbosePrint("[-] P2p beacon DEAD")
 	}
 	return out
 }
@@ -364,7 +351,7 @@ func (p2pPipeClient SmbPipeAPI) GetPayloadBytes(payload string, server string, u
 	if len(payload) > 0 {
 	    // Download single payload bytes. Create SMB Pipe message with instruction type GET_PAYLOAD_BYTES
 	    // and payload as a map[string]string specifying the file and platform.
-		output.VerbosePrint(fmt.Sprintf("[*] P2p Client Downloading new payload via %s: %s",server, payload))
+		output.VerbosePrint(fmt.Sprintf("[*] P2p Client Downloading new payload bytes: %s", payload))
         fileInfo := map[string]interface{} {"file": payload, "platform": platform}
         msgPayload, _ := json.Marshal(fileInfo)
 		responseMsg, err := p2pPipeClient.sendRequestToServer(server, uniqueID, GET_PAYLOAD_BYTES, msgPayload)
@@ -456,9 +443,9 @@ func (p2pPipeClient SmbPipeAPI) sendSmbPipeClientInput(pipePath string, data []b
     if err != nil {
         output.VerbosePrint(fmt.Sprintf("[!] Error: %v", err))
         if err == winio.ErrTimeout {
-            output.VerbosePrint(fmt.Sprintf("[!] Timed out trying to dial to pipe %s", pipePath))
+            output.VerbosePrint("[!] Timed out trying to dial to pipe")
         } else {
-            output.VerbosePrint(fmt.Sprintf("[!] Error dialing to pipe %s: %v", pipePath, err))
+            output.VerbosePrint(fmt.Sprintf("[!] Error dialing to pipe: %v", err))
         }
         return
     }
@@ -477,9 +464,9 @@ func (p2pPipeClient SmbPipeAPI) fetchReceiverResponse(pipePath string) ([]byte, 
 
     if err != nil {
         if err == winio.ErrTimeout {
-            output.VerbosePrint(fmt.Sprintf("[!] Timed out trying to dial to pipe %s", pipePath))
+            output.VerbosePrint("[!] Timed out trying to dial to pipe")
         } else {
-            output.VerbosePrint(fmt.Sprintf("[!] Error dialing to pipe %s\n", pipePath, err))
+            output.VerbosePrint(fmt.Sprintf("[!] Error dialing to pipe: %v", err))
         }
         return nil, err
     }
