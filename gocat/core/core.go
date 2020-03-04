@@ -40,7 +40,7 @@ func downloadPayloads(payloadListStr string, coms contact.Contact, profile map[s
 	return droppedPayloads
 }
 
-func runAgent(coms contact.Contact, profile map[string]interface{}, onlineHosts string) {
+func runAgent(coms contact.Contact, profile map[string]interface{}, onlineHosts string, c2Config map[string]string) {
 	watchdog, failCount, currentP2pHostIndex, currentP2pClientIndex := 0, 0, 0, 0
 	availableHosts := proxy.GetOnlineHosts(onlineHosts)
 	numAvailableHosts := len(availableHosts)
@@ -66,7 +66,11 @@ func runAgent(coms contact.Contact, profile map[string]interface{}, onlineHosts 
 					output.VerbosePrint(fmt.Sprintf("[*] Falling back to P2P comms method %s via %s", p2pClientName, p2pHostname))
 					failCount = 0
 					profile["server"] = p2pHostname
-					coms = p2pClient
+					if p2pClient.C2RequirementsMet(profile, c2Config) {
+						coms = p2pClient
+					} else {
+						output.VerbosePrint(fmt.Sprintf("[-] Requirements not met for p2p method %s via %s. Skipping", p2pClientName, p2pHostname))
+					}
 				} else {
 					output.VerbosePrint(fmt.Sprintf("[-] P2P client for %s not found. Skipping.", p2pClientName))
 				}
@@ -124,36 +128,20 @@ func buildProfile(server string, group string, executors []string, privilege str
 
 func chooseCommunicationChannel(profile map[string]interface{}, c2Config map[string]string) contact.Contact {
 	coms, _ := contact.CommunicationChannels[c2Config["c2Name"]]
-	if !validC2Configuration(coms, c2Config) {
+	if !validC2Configuration(profile, coms, c2Config) {
 		output.VerbosePrint("[-] Invalid C2 Configuration! Defaulting to HTTP")
 		coms, _ = contact.CommunicationChannels["HTTP"]
 	}
 	return coms
 }
 
-func validC2Configuration(coms contact.Contact, c2Config map[string]string) bool {
+func validC2Configuration(profile map[string]interface{}, coms contact.Contact, c2Config map[string]string) bool {
 	if strings.EqualFold(c2Config["c2Name"], c2Config["c2Name"]) {
 		if _, valid := contact.CommunicationChannels[c2Config["c2Name"]]; valid {
-			return coms.C2RequirementsMet(c2Config)
+			return coms.C2RequirementsMet(profile, c2Config)
 		}
 	}
 	return false
-}
-
-func chooseP2pReceiverChannel(p2pReceiverConfig map[string]string) proxy.P2pReceiver {
-    receiver, _ := proxy.P2pReceiverChannels[p2pReceiverConfig["p2pReceiverType"]]
-
-    if receiver != nil && !validP2pReceiverConfiguration(receiver, p2pReceiverConfig) {
-        output.VerbosePrint("[-] Invalid P2P Receiver configuration. Defaulting to no P2P receiver")
-        receiver = nil
-    }
-
-    return receiver
-}
-
-func validP2pReceiverConfiguration(receiver proxy.P2pReceiver, p2pReceiverConfig map[string]string) bool {
-    receiverLoc, valid := p2pReceiverConfig["p2pReceiver"];
-    return valid && len(receiverLoc) > 0;
 }
 
 //Core is the main function as wrapped by sandcat.go
@@ -167,9 +155,6 @@ func Core(server string, group string, delay int, executors []string, c2 map[str
 	output.VerbosePrint(fmt.Sprintf("privilege=%s", privilege))
 	output.VerbosePrint(fmt.Sprintf("initial delay=%d", delay))
 	output.VerbosePrint(fmt.Sprintf("c2 channel=%s", c2["c2Name"]))
-
-	p2pReceiverLoc := p2pReceiverConfig["p2pReceiver"]
-	p2pReceiverType := p2pReceiverConfig["p2pReceiverType"]
 
 	profile := buildProfile(server, group, executors, privilege, c2["c2Name"])
 	util.Sleep(float64(delay))
@@ -187,7 +172,7 @@ func Core(server string, group string, delay int, executors []string, c2 map[str
 				}
 			}
 			for {
-				runAgent(coms, profile, onlineHosts)
+				runAgent(coms, profile, onlineHosts, c2)
 			}
 		}
 		util.Sleep(300)

