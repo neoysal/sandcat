@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"math/rand"
 
 	"../contact"
 	"../proxy"
@@ -41,9 +42,13 @@ func downloadPayloads(payloadListStr string, coms contact.Contact, profile map[s
 }
 
 func runAgent(coms contact.Contact, profile map[string]interface{}, onlineHosts string, c2Config map[string]string) {
-	watchdog, failCount, currentP2pHostIndex, currentP2pClientIndex := 0, 0, 0, 0
+	watchdog, failCount, currentP2pClientIndex, currentP2pHostIndex := 0, 0, 0, 0
 	availableHosts := proxy.GetOnlineHosts(onlineHosts)
 	numAvailableHosts := len(availableHosts)
+	if numAvailableHosts > 0 {
+		rand.Seed(time.Now().UnixNano())
+		currentP2pHostIndex = rand.Intn(int(numAvailableHosts)) // start with a random peer.
+	}
 	p2pClientChannelNames := proxy.GetP2pClientChannelNames()
 	numP2pClientChannels := len(p2pClientChannelNames)
 	checkin := time.Now()
