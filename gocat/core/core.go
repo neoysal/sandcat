@@ -25,6 +25,10 @@ import (
 	_ "../executors/shells"    // necessary to initialize all submodules
 )
 
+var useP2pReceivers = false
+var receiversActivated = false
+const failureThreshold = 1 // number of failed beacons before switching comm methods.
+
 // Will download each individual payload listed, and will return the full file paths of each downloaded payload.
 func downloadPayloads(payloadListStr string, coms contact.Contact, profile map[string]interface{}) []string {
 	var droppedPayloads []string
@@ -41,6 +45,43 @@ func downloadPayloads(payloadListStr string, coms contact.Contact, profile map[s
 	return droppedPayloads
 }
 
+func activateP2pReceivers(profile map[string]interface{}, coms contact.Contact) {
+	for receiverName, p2pReceiver := range proxy.P2pReceiverChannels {
+		if p2pReceiver != nil {
+			go p2pReceiver.StartReceiver(profile, coms)
+		} else {
+			output.VerbosePrint(fmt.Sprintf("[-] P2P Receiver for %s not found. Skipping.", receiverName))
+		}
+	}
+}
+
+// Helper function to switch P2P communication methods and agents. Returns new p2pClient coms.
+func switchP2pComs(profile map[string]interface{}, c2Config map[string]string, p2pHostname string, p2pClientChannelName string) contact.Contact {
+	var newP2pClientComs contact.Contact = nil
+	p2pClient := proxy.P2pClientChannels[p2pClientChannelName]
+	if p2pClient != nil {
+		output.VerbosePrint(fmt.Sprintf("[*] Will try falling back to P2P comms method %s via %s", p2pClientChannelName, p2pHostname))
+		profile["server"] = p2pHostname
+		if p2pClient.C2RequirementsMet(profile, c2Config) {
+			if useP2pReceivers && receiversActivated {
+				// Update server values for receivers.
+				for receiverName, p2pReceiver := range proxy.P2pReceiverChannels {
+					if p2pReceiver != nil {
+						p2pReceiver.UpdateServerAndComs(profile["server"].(string), p2pClient)
+						output.VerbosePrint(fmt.Sprintf("[*] Updated server value for P2P receiver type %s to %s", receiverName, profile["server"].(string)))
+					}
+				}
+			}
+			newP2pClientComs = p2pClient
+		} else {
+			output.VerbosePrint(fmt.Sprintf("[-] Requirements not met for p2p method %s via %s.", p2pClientChannelName, p2pHostname))
+		}
+	} else {
+		output.VerbosePrint(fmt.Sprintf("[-] P2P client for %s not found.", p2pClientChannelName))
+	}
+	return newP2pClientComs
+}
+
 func runAgent(coms contact.Contact, profile map[string]interface{}, onlineHosts string, c2Config map[string]string) {
 	watchdog, failCount, currentP2pClientIndex, currentP2pHostIndex := 0, 0, 0, 0
 	availableHosts := proxy.GetOnlineHosts(onlineHosts)
@@ -54,30 +95,36 @@ func runAgent(coms contact.Contact, profile map[string]interface{}, onlineHosts 
 	checkin := time.Now()
 	output.VerbosePrint(fmt.Sprintf("[*] Available p2p client methods: %q", p2pClientChannelNames))
 	output.VerbosePrint(fmt.Sprintf("[*] Available p2p hosts: %q", availableHosts))
+
 	for {
+		output.VerbosePrint("Core: going to request instructions")
 		beacon := coms.GetInstructions(profile)
+		// debugging
+		output.VerbosePrint("Core: got instructions")
 		if len(beacon) != 0 {
 			profile["paw"] = beacon["paw"]
 			checkin = time.Now()
 			failCount = 0
+
+			// We have established comms. Run p2p receivers if allowed.
+			if useP2pReceivers && !receiversActivated {
+				activateP2pReceivers(profile, coms)
+				output.VerbosePrint("[*] Started up P2P receivers.")
+				receiversActivated = true
+			}
 		} else {
 			failCount++
-			if failCount >= 3 && numAvailableHosts > 0 && numP2pClientChannels > 0 {
+			if failCount >= 1 && numAvailableHosts > 0 && numP2pClientChannels > 0 {
 				// Current connection to C2 down. Try switching to P2P comms.
 				p2pHostname := availableHosts[currentP2pHostIndex]
-				p2pClientName := p2pClientChannelNames[currentP2pClientIndex]
-				p2pClient := proxy.P2pClientChannels[p2pClientName]
-				if p2pClient != nil {
-					output.VerbosePrint(fmt.Sprintf("[*] Falling back to P2P comms method %s via %s", p2pClientName, p2pHostname))
+				p2pClientChannelName := p2pClientChannelNames[currentP2pClientIndex]
+				if newComs := switchP2pComs(profile, c2Config, p2pHostname, p2pClientChannelName); newComs != nil {
+					output.VerbosePrint(fmt.Sprintf("[*] Will use P2P comms method %s via %s", p2pClientChannelName, p2pHostname))
 					failCount = 0
-					profile["server"] = p2pHostname
-					if p2pClient.C2RequirementsMet(profile, c2Config) {
-						coms = p2pClient
-					} else {
-						output.VerbosePrint(fmt.Sprintf("[-] Requirements not met for p2p method %s via %s. Skipping", p2pClientName, p2pHostname))
-					}
+					coms = newComs
+					continue
 				} else {
-					output.VerbosePrint(fmt.Sprintf("[-] P2P client for %s not found. Skipping.", p2pClientName))
+					output.VerbosePrint(fmt.Sprintf("[-] Cannot use P2P comms method %s via %s. Skipping.", p2pClientChannelName, p2pHostname))
 				}
 				currentP2pClientIndex = (currentP2pClientIndex + 1) % numP2pClientChannels
 				if currentP2pClientIndex == 0 {
@@ -160,22 +207,14 @@ func Core(server string, group string, delay int, executors []string, c2 map[str
 	output.VerbosePrint(fmt.Sprintf("privilege=%s", privilege))
 	output.VerbosePrint(fmt.Sprintf("initial delay=%d", delay))
 	output.VerbosePrint(fmt.Sprintf("c2 channel=%s", c2["c2Name"]))
+	output.VerbosePrint(fmt.Sprintf("p2p receivers on=%v", p2pReceiversOn))
+	useP2pReceivers = p2pReceiversOn
 
 	profile := buildProfile(server, group, executors, privilege, c2["c2Name"])
 	util.Sleep(float64(delay))
 	for {
 		coms := chooseCommunicationChannel(profile, c2)
 		if coms != nil {
-			if p2pReceiversOn {
-				// If any p2p receivers are available, start them.
-				for receiverName, p2pReceiver := range proxy.P2pReceiverChannels {
-					if p2pReceiver != nil {
-						go p2pReceiver.StartReceiver(profile, coms)
-					} else {
-						output.VerbosePrint(fmt.Sprintf("[-] P2P Receiver for %s not found. Skipping.", receiverName))
-					}
-				}
-			}
 			for {
 				runAgent(coms, profile, onlineHosts, c2)
 			}
