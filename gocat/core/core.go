@@ -82,14 +82,21 @@ func switchP2pComs(profile map[string]interface{}, c2Config map[string]string, p
 	return newP2pClientComs
 }
 
-func runAgent(coms contact.Contact, profile map[string]interface{}, onlineHosts string, c2Config map[string]string) {
-	watchdog, failCount, currentP2pClientIndex, currentP2pHostIndex := 0, 0, 0, 0
-	availableHosts := proxy.GetOnlineHosts(onlineHosts)
-	numAvailableHosts := len(availableHosts)
-	if numAvailableHosts > 0 {
+// Pick random index from list of available P2P hosts, -1 if list is empty.
+func pickRandomP2pPeerIndex(availableHosts []string) int {
+	index := -1
+	if len(availableHosts) > 0 {
 		rand.Seed(time.Now().UnixNano())
-		currentP2pHostIndex = rand.Intn(int(numAvailableHosts)) // start with a random peer.
+		index = rand.Intn(len(availableHosts))
 	}
+	return index
+}
+
+func runAgent(coms contact.Contact, profile map[string]interface{}, onlineHosts string, c2Config map[string]string) {
+	watchdog, failCount, currentP2pClientIndex := 0, 0, 0
+	availableHosts := proxy.GetOnlineHosts(onlineHosts)
+	currentP2pHostIndex := pickRandomP2pPeerIndex(availableHosts) // start with a random peer.
+	numAvailableHosts := len(availableHosts)
 	p2pClientChannelNames := proxy.GetP2pClientChannelNames()
 	numP2pClientChannels := len(p2pClientChannelNames)
 	checkin := time.Now()
@@ -97,10 +104,7 @@ func runAgent(coms contact.Contact, profile map[string]interface{}, onlineHosts 
 	output.VerbosePrint(fmt.Sprintf("[*] Available p2p hosts: %q", availableHosts))
 
 	for {
-		output.VerbosePrint("Core: going to request instructions")
 		beacon := coms.GetInstructions(profile)
-		// debugging
-		output.VerbosePrint("Core: got instructions")
 		if len(beacon) != 0 {
 			profile["paw"] = beacon["paw"]
 			checkin = time.Now()
@@ -114,8 +118,9 @@ func runAgent(coms contact.Contact, profile map[string]interface{}, onlineHosts 
 			}
 		} else {
 			failCount++
-			if failCount >= 1 && numAvailableHosts > 0 && numP2pClientChannels > 0 {
+			if failCount >= 1 && currentP2pHostIndex >= 0 && numP2pClientChannels > 0 {
 				// Current connection to C2 down. Try switching to P2P comms.
+				output.VerbosePrint(fmt.Sprintf("[*] Using index: %d", currentP2pHostIndex))
 				p2pHostname := availableHosts[currentP2pHostIndex]
 				p2pClientChannelName := p2pClientChannelNames[currentP2pClientIndex]
 				if newComs := switchP2pComs(profile, c2Config, p2pHostname, p2pClientChannelName); newComs != nil {

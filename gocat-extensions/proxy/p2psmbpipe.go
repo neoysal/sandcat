@@ -41,6 +41,7 @@ const (
 	clientPipeNameMinLen = 10
 	clientPipeNameMaxLen = 15
 	maxChunkSize = 5*4096
+	pipeDialTimeoutSec = 10 // number of seconds to wait before timing out of pipe dial attempt.
 )
 
 //SmbPipeAPI communicates through SMB named pipes. Implements the Contact interface
@@ -104,7 +105,6 @@ func (receiver *SmbPipeReceiver) startReceiverHelper(profile map[string]interfac
 			continue
 		}
 		message := BytesToP2pMsg(totalData)
-		output.VerbosePrint(fmt.Sprintf("[*] Receiver: got message type %d from paw %s", message.MessageType, message.RequestingAgentPaw))
 		switch message.MessageType {
 			case GET_INSTRUCTIONS:
 				go receiver.forwardGetInstructions(message, profile)
@@ -128,7 +128,6 @@ func (receiver *SmbPipeReceiver) forwardGetInstructions(message P2pMessage, prof
     json.Unmarshal(message.Payload, &clientProfile)
     clientProfile["server"] = receiver.Server // make sure we send the instructions to the right place.
     response := receiver.UpstreamComs.GetInstructions(clientProfile)
-    output.VerbosePrint(fmt.Sprintf("[*] Going to send instructions response to %s", paw))
 
     // Connect to client mailbox to send response back to client.
     if len(message.SourceAddress) > 0 {
@@ -139,7 +138,7 @@ func (receiver *SmbPipeReceiver) forwardGetInstructions(message P2pMessage, prof
         }
         pipeMsgData := BuildP2pMsgBytes(forwarderPaw, RESPONSE_INSTRUCTIONS, data, "")
         sendDataToPipe(message.SourceAddress, pipeMsgData)
-        output.VerbosePrint(fmt.Sprintf("[*] Sent instruction response for paw %s to return mailbox %s", paw, message.SourceAddress))
+        output.VerbosePrint(fmt.Sprintf("[*] Sent instruction response for paw %s via mailbox %s", paw, message.SourceAddress))
     } else {
         output.VerbosePrint(fmt.Sprintf("[-] ERROR. P2p message from client did not specify a return address."))
     }
@@ -156,7 +155,6 @@ func (receiver *SmbPipeReceiver) forwardPayloadBytesDownload(message P2pMessage,
 
     // Get upstream response (do not write to disk, just download the data), and forward response to client.
     _, payloadBytes := receiver.UpstreamComs.GetPayloadBytes(fileInfo["file"], profile["server"].(string), paw, fileInfo["platform"], false)
-    output.VerbosePrint(fmt.Sprintf("[*] Forwarding %d bytes of payload data", len(payloadBytes)))
     if len(message.SourceAddress) > 0 {
         forwarderPaw := ""
         if profile["paw"] != nil {
@@ -164,7 +162,7 @@ func (receiver *SmbPipeReceiver) forwardPayloadBytesDownload(message P2pMessage,
         }
         pipeMsgData := BuildP2pMsgBytes(forwarderPaw, RESPONSE_PAYLOAD_BYTES, payloadBytes, "")
         sendDataToPipe(message.SourceAddress, pipeMsgData)
-        output.VerbosePrint(fmt.Sprintf("[*] Sent payload bytes for client paw %s at mailbox %s", paw, message.SourceAddress))
+        output.VerbosePrint(fmt.Sprintf("[*] Sent %d payload bytes to client paw %s via mailbox %s", len(payloadBytes), paw, message.SourceAddress))
     } else {
         output.VerbosePrint(fmt.Sprintf("[-] ERROR. P2p message from client did not specify a return address."))
     }
@@ -226,7 +224,6 @@ func (p2pPipeClient *SmbPipeAPI) GetInstructions(profile map[string]interface{})
 		upstreamPipeLock.Unlock()
 		return out
 	}
-	output.VerbosePrint("[*] P2p Client: Going to get instruction response from server.")
 
 	// Process response.
 	respMessage, err := getResponseMessage(mailBoxListener)
@@ -287,7 +284,6 @@ func (p2pPipeClient *SmbPipeAPI) GetPayloadBytes(payload string, server string, 
 				upstreamPipeLock.Unlock()
 				return location, retBuf
 			}
-			output.VerbosePrint("[*] P2p Client: Going to get payload response from server.")
 
 			// Process response.
 			respMessage, err := getResponseMessage(mailBoxListener)
@@ -378,14 +374,12 @@ func (p2pPipeClient *SmbPipeAPI) SendExecutionResults(profile map[string]interfa
 func sendRequestToServer(pipePath string, paw string, messageType int, payload []byte, returnMailBoxPipePath string) error {
     pipeMsgData := BuildP2pMsgBytes(paw, messageType, payload, returnMailBoxPipePath)
     _, err := sendDataToPipe(pipePath, pipeMsgData)
-    output.VerbosePrint("[*] sent request to server")
     return err
 }
 
 // Returns the P2pMessage sent to the pipe path for the specified listener.
 func getResponseMessage(listener net.Listener) (P2pMessage, error) {
 	responseData, err := fetchDataFromPipe(listener)
-	output.VerbosePrint("[*] got data from server")
     if responseData != nil && err == nil {
         respMsg := BytesToP2pMsg(responseData)
         return respMsg, nil
@@ -396,13 +390,12 @@ func getResponseMessage(listener net.Listener) (P2pMessage, error) {
 
 // Sends data to specified pipe path. Returns total number of bytes written and errors if any.
 func sendDataToPipe(pipePath string, data []byte) (int, error) {
-	output.VerbosePrint("[*] Attempting to dial to pipe")
 	// Connect to pipe.
-	conn, err := winio.DialPipe(pipePath, nil)
+	timeout := pipeDialTimeoutSec * time.Second
+	conn, err := winio.DialPipe(pipePath, &timeout)
     if err != nil {
         return 0, err
     }
-    output.VerbosePrint("[*] Dialed to pipe")
     defer conn.Close()
 
     // Write data in chunks.
@@ -437,7 +430,6 @@ func fetchDataFromPipe(listener net.Listener) ([]byte, error) {
         return nil, err
     }
     defer conn.Close()
-    output.VerbosePrint("[*] Listener accepted connection")
 
     // Read in the data and close connection. If message has been split into chunks,
     // we should read everything in one shot.
