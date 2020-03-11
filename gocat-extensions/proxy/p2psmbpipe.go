@@ -1,5 +1,30 @@
 // +build windows
 
+/*
+ * This file contains implementations for a P2P client (SmbPipeAPI) and P2P receiver (SmbPipeReceiver)
+ * Agents using SMB pipes to communicate upstream will do so using the P2P client, and the upstream agents receiving
+ * the SMB pipe messages will need to have the SMB P2P receivers running. An agent can use both the SmbPipeAPI p2p
+ * client and the SmbPipeReceiver at the same time, in which case it would act as an SMB forwarder, using SMB for
+ * both upstream and downstream communications.
+ *
+ * Each agent using SMB Pipe P2P will have one SmbPipeAPI struct that implements the contact.Contact interface to
+ * provide full communication between the agent and the upstream C2 (get payloads, get instructions, etc).
+ * The SMB pipe API client assumes that it is talking to an SMB Pipe p2p receiver that knows how to process the
+ * client messages accordingly. When using the SMB Pipe P2P client, the agent will generate a random pipe path
+ * to listen on - this pipe will receive response messages when the agent sends requests upstream for itself.
+ * But if an agent has downstream agents to forward messages for, those requests will also flow through the
+ * SMB pipe API client. Thus, the agent will open up new random pipe paths for each downstream agent that it is
+ * servicing, and the SmbPipeAPI struct will keep track of which pipe path is for which downstream agent so that
+ * it can forward the responses appropriately.
+ *
+ * Each agent listening for SMB pipe P2P messages will activate an SMB pipe receiver that listens on a particular
+ * pipe path. This pipe path is randomly generated using the hostname as the seed, so that a client agent
+ * can calculate the pipe path for its upstream agent.  As the SMB pipe receiver gets messages from downstream
+ * agents, it will forward the message upstream and return the response.  Each upstream P2P message via SMB pipes
+ * must contain the requesting agent's pipe path for response messages, so the P2P receiver knows where to send
+ * the responses.
+ */
+
 package proxy
 
 import (
@@ -35,21 +60,22 @@ var (
 	upstreamPipeLock sync.Mutex
 )
 
+// Pipe-related constants.
 const (
-	pipeCharacters = "abcdefghijklmnopqrstuvwxyz"
+	pipeCharacters = "abcdefghijklmnopqrstuvwxyz1234567890"
 	numPipeCharacters = int64(len(pipeCharacters))
 	clientPipeNameMinLen = 10
 	clientPipeNameMaxLen = 15
-	maxChunkSize = 5*4096
+	maxChunkSize = 5*4096 // chunk size for writing to pipes.
 	pipeDialTimeoutSec = 10 // number of seconds to wait before timing out of pipe dial attempt.
 )
 
-//SmbPipeAPI communicates through SMB named pipes. Implements the Contact interface
+// SmbPipeAPI communicates through SMB named pipes. Implements the Contact interface.
 type SmbPipeAPI struct {
-	// maps agent paws to full pipe paths for receiving forwarded responses on their behalf
+	// Maps agent paws to full pipe paths for receiving forwarded responses on their behalf.
 	ReturnMailBoxPipePaths map[string]string
 
-	// maps agent paws to Listener objects for the corresponding local pipe paths
+	// Maps agent paws to Listener objects for the corresponding local pipe paths.
 	ReturnMailBoxListeners map[string]net.Listener
 }
 
@@ -57,7 +83,7 @@ type SmbPipeAPI struct {
 type SmbPipeReceiver struct {
 	UpstreamComs contact.Contact // Contact implementation to handle upstream communication.
 	Listener net.Listener // Listener object for this receiver.
-	Server string // Location of upstream server to send data to.
+	UpstreamServer string // Location of upstream server to send data to.
 }
 
 func init() {
@@ -75,14 +101,14 @@ func (receiver *SmbPipeReceiver) StartReceiver(profile map[string]interface{}, u
 		return
 	}
 	pipePath := "\\\\.\\pipe\\" + getMainPipeName(hostname)
-	receiver.Server = profile["server"].(string)
+	receiver.UpstreamServer = profile["server"].(string)
 	receiver.UpstreamComs = upstreamComs
-	output.VerbosePrint(fmt.Sprintf("[*] Receiver upstream server set to %s", receiver.Server))
+	output.VerbosePrint(fmt.Sprintf("[*] Receiver upstream server set to %s", receiver.UpstreamServer))
 	receiver.startReceiverHelper(profile, pipePath)
 }
 
 func (receiver *SmbPipeReceiver) UpdateServerAndComs(newServer string, newComs contact.Contact) {
-	receiver.Server = newServer
+	receiver.UpstreamServer = newServer
 	receiver.UpstreamComs = newComs
 }
 
@@ -105,6 +131,10 @@ func (receiver *SmbPipeReceiver) startReceiverHelper(profile map[string]interfac
 			continue
 		}
 		message := BytesToP2pMsg(totalData)
+		if MsgIsEmpty(message) {
+			output.VerbosePrint("[!] Error - downstream agent sent an empty P2P message.")
+			continue
+		}
 		switch message.MessageType {
 			case GET_INSTRUCTIONS:
 				go receiver.forwardGetInstructions(message, profile)
@@ -126,7 +156,7 @@ func (receiver *SmbPipeReceiver) forwardGetInstructions(message P2pMessage, prof
     // Message payload contains profile to send upstream
     var clientProfile map[string]interface{}
     json.Unmarshal(message.Payload, &clientProfile)
-    clientProfile["server"] = receiver.Server // make sure we send the instructions to the right place.
+    clientProfile["server"] = receiver.UpstreamServer // make sure we send the instructions to the right place.
     response := receiver.UpstreamComs.GetInstructions(clientProfile)
 
     // Connect to client mailbox to send response back to client.
@@ -149,7 +179,7 @@ func (receiver *SmbPipeReceiver) forwardPayloadBytesDownload(message P2pMessage,
     paw := message.RequestingAgentPaw
     output.VerbosePrint(fmt.Sprintf("[*] Forwarding payload bytes request on behalf of paw %s", paw))
 
-    // message payload contains file name (str) and platform (str)
+    // Message payload contains file name and requesting agent's platform.
     var fileInfo map[string]string
     json.Unmarshal(message.Payload, &fileInfo)
 
@@ -179,7 +209,7 @@ func (receiver *SmbPipeReceiver) forwardSendExecResults(message P2pMessage, prof
         output.VerbosePrint("[!] Error. Client sent blank message payload for execution results.")
         return
     }
-    clientProfile["server"] = receiver.Server
+    clientProfile["server"] = receiver.UpstreamServer
     result := clientProfile["result"].(map[string]interface{})
 
     // Send execution results upstream. No response will be sent to client.
