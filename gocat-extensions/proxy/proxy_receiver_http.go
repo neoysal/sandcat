@@ -180,6 +180,14 @@ func (h *HttpReceiver) handlePayloadEndpoint(writer http.ResponseWriter, reader 
 	}
 	clientPaw := pawHeader[0]
 
+	pawHeader, ok := reader.Header["Paw"]
+	if !ok {
+		output.VerbosePrint("[!] Error: Client did not include paw in payload request.")
+		http.Error(writer, "Paw required in payload request", http.StatusInternalServerError)
+		return
+	}
+	clientPaw := pawHeader[0]
+
 	// Build profile to send request upstream.
 	profile := make(map[string]interface{})
 	profile["server"] = h.upstreamServer
