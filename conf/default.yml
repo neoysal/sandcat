@@ -1,0 +1,16 @@
+---
+
+name: default
+description: default loadout for sandcat agent
+
+# Default C2 communication settings
+http_gateway_proxy: ""
+default_c2_protocol: HTTP
+default_group: red
+
+# Default proxy_peer_settings
+activate_proxy_peer_listeners: no
+include_proxy_peer_protocols: []
+
+# Default extension settings
+gocat_extensions:

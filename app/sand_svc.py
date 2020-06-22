@@ -17,7 +17,6 @@ gocat_variants = dict(
 )
 default_gocat_variant = 'basic'
 
-
 class SandService(BaseService):
 
     def __init__(self, services):
@@ -28,6 +27,7 @@ class SandService(BaseService):
         self.log = self.create_logger('sand_svc')
         self.sandcat_dir = os.path.relpath(os.path.join('plugins', 'sandcat'))
         self.sandcat_extensions = dict()
+        self.agent_configurations = dict()
 
     async def dynamically_compile_executable(self, headers):
         # HTTP headers will specify the file name, platform, and comma-separated list of extension modules to include.
@@ -87,6 +87,25 @@ class SandService(BaseService):
                     module_name = file.split('.')[0]
                     self.sandcat_extensions[module_name] = module
                     self.log.debug('Loaded gocat extension module: %s' % module_name)
+
+    async def load_sandcat_agent_configs(self):
+        """
+        Load the agent configuration yaml files located in conf/
+        """
+        for root, dirs, files in os.walk(os.path.join(self.sandcat_dir, 'conf')):
+            config_files = [f for f in files if not f[0] == '.' and not f[0] == "_" and f.endswith('.yml')]
+            for file in config_files:
+                parsed = self.strip_yml(os.path.join(self.sandcat_dir, 'conf', file))
+                if parsed:
+                    config = parsed[0]
+                    config_name = config.get('name')
+                    if config_name:
+                        self.agent_configurations[config_name] = config
+                        self.log.debug('Loaded sandcat agent configuration %s from %s' % (config_name, file))
+                        self.log.debug(config)
+                    else:
+                        self.log.error('Sandcat agent configuration file at %s missing name field.' % file)
+
 
     """ PRIVATE """
 
