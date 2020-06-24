@@ -13,4 +13,4 @@ activate_proxy_peer_listeners: no
 include_proxy_peer_protocols: []
 
 # Default extension settings
-gocat_extensions:
+gocat_extensions: []

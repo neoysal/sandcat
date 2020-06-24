@@ -14,7 +14,6 @@ include_proxy_peer_protocols: []
 
 # Default extension settings
 gocat_extensions:
-  - gist
   - shared
   - shells
   - shellcode
