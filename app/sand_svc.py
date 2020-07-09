@@ -31,7 +31,7 @@ class SandService(BaseService):
 
     async def dynamically_compile_executable(self, headers):
         # HTTP headers will specify the file name, platform, and comma-separated list of extension modules to include.
-        name, platform = headers.get('file'), headers.get('platform')
+        name, platform, architecture = headers.get('file'), headers.get('platform'), headers.get('architecture')
         extension_names = await self._obtain_extensions_from_headers(headers)
         if which('go') is not None:
             await self._compile_new_agent(platform=platform,
@@ -40,12 +40,13 @@ class SandService(BaseService):
                                           cflags='CGO_ENABLED=0',
                                           output_name=name,
                                           extension_names=extension_names,
-                                          compile_target_dir='gocat')
-        return await self.app_svc.retrieve_compiled_file(name, platform)
+                                          compile_target_dir='gocat',
+                                          architecture=architecture)
+        return await self.app_svc.retrieve_compiled_file(name, platform, architecture)
 
     async def dynamically_compile_library(self, headers):
         # HTTP headers will specify the file name, platform, and comma-separated list of extension modules to include.
-        name, platform = headers.get('file'), headers.get('platform')
+        name, platform, architecture = headers.get('file'), headers.get('platform'), headers.get('architecture')
         extension_names = await self._obtain_extensions_from_headers(headers)
         compile_options = dict(
             windows=dict(
@@ -71,8 +72,10 @@ class SandService(BaseService):
                                               **compile_options[platform],
                                               flag_params=default_flag_params,
                                               extension_names=extension_names,
-                                              compile_target_dir='gocat/shared')
-        return await self.app_svc.retrieve_compiled_file(name, platform)
+                                              compile_target_dir='gocat/shared',
+                                              architecture=architecture)
+        return await self.app_svc.retrieve_compiled_file(name, platform, architecture)
+
 
     async def load_sandcat_extension_modules(self):
         """
@@ -102,7 +105,7 @@ class SandService(BaseService):
 
     async def _compile_new_agent(self, platform, headers, compile_target_name, output_name, buildmode='',
                                  extldflags='', cflags='', flag_params=default_flag_params, extension_names=None,
-                                 compile_target_dir=''):
+                                 compile_target_dir='', architecture=None):
         """
         Compile sandcat agent using specified parameters. Will also include any requested extension modules.
         If a gocat variant is specified along with additional extensions, the extensions will be added to the
@@ -123,7 +126,7 @@ class SandService(BaseService):
                     ldflags.append('-X main.%s=%s' % (param, headers[param]))
         ldflags.append(extldflags)
 
-        output = str(pathlib.Path('plugins/sandcat/payloads').resolve() / ('%s-%s' % (output_name, platform)))
+        output = str(pathlib.Path('plugins/sandcat/payloads').resolve() / ('%s-%s' % (output_name, '-'.join([p for p in [platform, architecture] if p]))))
 
         # Load extensions and compile. Extensions need to be loaded before searching for target file.
         installed_extensions = await self._install_gocat_extensions(extension_names)
@@ -131,7 +134,7 @@ class SandService(BaseService):
         self.file_svc.log.debug('Dynamically compiling %s' % compile_target_name)
         build_path, build_file = os.path.split(file_path)
         await self.file_svc.compile_go(platform, output, build_file, buildmode=buildmode, ldflags=' '.join(ldflags),
-                                       cflags=cflags, build_dir=build_path)
+                                       cflags=cflags, build_dir=build_path, arch=architecture)
 
         # Remove extension files.
         await self._uninstall_gocat_extensions(installed_extensions)

